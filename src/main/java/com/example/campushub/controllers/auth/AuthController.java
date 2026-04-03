@@ -1,0 +1,125 @@
+package com.example.campushub.controllers.auth;
+
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.example.campushub.components.JwtTokenProvider;
+import com.example.campushub.dtos.auth.LoginDTO;
+import com.example.campushub.dtos.auth.RegisterDTO;
+import com.example.campushub.models.Token;
+import com.example.campushub.models.User;
+import com.example.campushub.responses.ApiResponse;
+import com.example.campushub.responses.LoginResponse;
+import com.example.campushub.services.auth.AuthService;
+import com.example.campushub.services.token.TokenService;
+import com.example.campushub.services.user.UserService;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+
+@RestController
+@RequestMapping("/auth")
+@RequiredArgsConstructor
+public class AuthController {
+
+    private final TokenService tokenService;
+    private final AuthService authService;
+
+    private final UserService userService;
+
+    private final JwtTokenProvider jwtTokenProvider;
+
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody @Valid RegisterDTO registerDTO) throws Exception {
+
+        if (registerDTO.getPassword() != null && !registerDTO.getPassword().equals(registerDTO.getRetypePassword())) {
+            return ResponseEntity.badRequest().body(new ApiResponse<>(false, null, "Passwords do not match"));
+        }
+
+        if (!registerDTO.getEmail().contains("@") || !registerDTO.getEmail().contains(".")) {
+            return ResponseEntity.badRequest().body(new ApiResponse<>(false, null, "Invalid email format"));
+        }
+
+        authService.register(registerDTO);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new ApiResponse<>(true, "User registered successfully", null));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody @Valid LoginDTO loginDTO) throws Exception {
+        String token = authService.login(loginDTO);
+        User user = userService.getUserFromEmail(loginDTO.getEmail());
+        String refreshToken = jwtTokenProvider.generateRefreshToken(user);
+        tokenService.addToken(user, refreshToken, jwtTokenProvider.getJtiFromToken(refreshToken));
+
+        ResponseCookie cookie = ResponseCookie.from("refreshToken", refreshToken)
+                .httpOnly(true)
+                .secure(false)
+                .path("/auth")
+                .maxAge(7 * 24 * 60 * 60)
+                .sameSite("Lax")
+                .build();
+
+        LoginResponse loginResponse = LoginResponse.builder()
+                .token(token)
+                .id(user.getId())
+                .username(user.getFullName())
+                .build();
+        return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(new ApiResponse<>(true, loginResponse, null));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(@CookieValue(required = false) String refreshToken) throws Exception {
+        if (refreshToken != null) {
+            try {
+                tokenService.revokeToken(refreshToken);
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+            }
+        }
+        
+        ResponseCookie deleteCookie = ResponseCookie.from("refreshToken", "")
+                .httpOnly(true)
+                .secure(false)
+                .path("/")
+                .maxAge(0)
+                .sameSite("Lax")
+                .build();
+        return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, deleteCookie.toString())
+                .body(new ApiResponse<>(true, "Logged out successfully", null));
+    }
+
+    @PostMapping("/refresh-token")
+    public ResponseEntity<?> refreshToken(@CookieValue(required = false) String refreshToken) throws Exception {
+
+        if (refreshToken == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Refresh token không tồn tại"));
+        }
+
+        Token tokenEntity = tokenService.findByToken(refreshToken);
+        if (tokenEntity == null || tokenEntity.isRevoked()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Refresh token không hợp lệ hoặc đã bị thu hồi"));
+        }
+
+        User user = userService.getUserById(tokenEntity.getUser().getId());
+        String newAccessToken = tokenService.refreshToken(user, tokenEntity.getToken());
+
+        LoginResponse loginResponse = LoginResponse.builder()
+                .token(newAccessToken)
+                .id(user.getId())
+                .username(user.getFullName())
+                .build();
+
+        return ResponseEntity.ok(new ApiResponse<>(true, loginResponse, null));
+    }
+}

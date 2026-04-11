@@ -1,4 +1,4 @@
-package com.example.campushub.dtos.auth;
+package com.example.campushub.dtos.users;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -11,16 +11,13 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class RegisterDTO {
-    @NotBlank(message = "Full name is required")
-    private String fullname;
+public class UpdatePasswordDTO {
+    @NotBlank(message = "Current password is required")
+    private String currentPassword;
 
-    @NotBlank(message = "Email is required")
-    private String email;
-
-    @NotBlank(message = "Password is required")
-    @Size(min = 8, message = "Password must be at least 8 characters long")
-    private String password;
+    @NotBlank(message = "New password is required")
+    @Size(min = 8, message = "New password must be at least 8 characters long")
+    private String newPassword;
 
     @NotBlank(message = "Confirm password is required")
     @Size(min = 8, message = "Confirm password must be at least 8 characters long")

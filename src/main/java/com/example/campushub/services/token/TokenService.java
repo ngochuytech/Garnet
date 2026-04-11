@@ -9,9 +9,9 @@ import org.springframework.stereotype.Service;
 import com.example.campushub.components.JwtTokenProvider;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.auth.ExpiredTokenException;
-import com.example.campushub.models.Token;
-import com.example.campushub.models.User;
-import com.example.campushub.repositories.TokenRepository;
+import com.example.campushub.models.jpa.Token;
+import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.TokenRepository;
 
 import lombok.RequiredArgsConstructor;
 

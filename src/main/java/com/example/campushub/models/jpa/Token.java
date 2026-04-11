@@ -1,6 +1,8 @@
-package com.example.campushub.models;
+package com.example.campushub.models.jpa;
 
 import java.time.LocalDateTime;
+
+import com.example.campushub.models.BaseEntity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

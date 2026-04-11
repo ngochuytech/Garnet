@@ -11,20 +11,23 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import com.example.campushub.components.JwtTokenProvider;
 import com.example.campushub.exceptions.auth.ExpiredTokenException;
-import com.example.campushub.models.User;
+import com.example.campushub.models.jpa.User;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 
 @Component
-@RequiredArgsConstructor
 public class JwtAuthFilter extends OncePerRequestFilter {
     private final UserDetailsService userDetailsService;
-
     private final JwtTokenProvider jwtTokenProvider;
+
+    public JwtAuthFilter(@Lazy UserDetailsService userDetailsService, JwtTokenProvider jwtTokenProvider) {
+        this.userDetailsService = userDetailsService;
+        this.jwtTokenProvider = jwtTokenProvider;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)

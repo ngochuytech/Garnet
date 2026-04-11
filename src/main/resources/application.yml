@@ -16,7 +16,19 @@ spring:
         multipart:
             max-file-size: 10MB
             max-request-size: 10MB
+    neo4j:
+        uri: neo4j://127.0.0.1:7687
+        authentication:
+            username: ${NEO4J_USERNAME:neo4j}
+            password: ${NEO4J_PASSWORD:neo4j123}
+        database: neo4j
 
+logging:
+    level:
+        org:
+            springframework:
+                data:
+                    neo4j : DEBUG
 jwt:
     secret: ${JWT_SECRET:CLmwUa8+3bNqOH2PqstyXqPYN6YNfsMz5D+zzWG9VYPcVKoId+XcDI/1WBc/sJZXLpWPntbLGZNqCh6LQj8zrA==}
     expiration: 1800000 # 1 hour in milliseconds

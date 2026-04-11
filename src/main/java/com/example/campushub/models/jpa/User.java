@@ -1,23 +1,30 @@
-package com.example.campushub.models;
+package com.example.campushub.models.jpa;
 
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import com.example.campushub.enums.UserRole;
 import com.example.campushub.enums.UserStatus;
+import com.example.campushub.models.BaseEntity;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -59,6 +66,20 @@ public class User extends BaseEntity implements UserDetails {
     @Column(name = "bio")
     private String bio;
 
+    @Column(name = "google_id", length = 255)
+    private String googleId;
+
+    @Column(name = "gender")
+    private Boolean gender;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(
+        name = "user_interests",
+        joinColumns = @JoinColumn(name = "user_id")
+    )
+    @Column(name = "interest_name")
+    private List<String> interests;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status")
     @Builder.Default
@@ -68,6 +89,7 @@ public class User extends BaseEntity implements UserDetails {
     @Column(name = "role")
     @Builder.Default
     private UserRole role = UserRole.USER;
+
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {

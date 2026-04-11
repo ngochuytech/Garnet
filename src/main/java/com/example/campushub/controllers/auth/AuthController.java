@@ -13,8 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.campushub.components.JwtTokenProvider;
 import com.example.campushub.dtos.auth.LoginDTO;
 import com.example.campushub.dtos.auth.RegisterDTO;
-import com.example.campushub.models.Token;
-import com.example.campushub.models.User;
+import com.example.campushub.models.jpa.Token;
+import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.LoginResponse;
 import com.example.campushub.services.auth.AuthService;
@@ -39,7 +39,7 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody @Valid RegisterDTO registerDTO) throws Exception {
 
-        if (registerDTO.getPassword() != null && !registerDTO.getPassword().equals(registerDTO.getRetypePassword())) {
+        if (registerDTO.getPassword() != null && !registerDTO.getPassword().equals(registerDTO.getConfirmPassword())) {
             return ResponseEntity.badRequest().body(new ApiResponse<>(false, null, "Passwords do not match"));
         }
 
@@ -69,8 +69,11 @@ public class AuthController {
 
         LoginResponse loginResponse = LoginResponse.builder()
                 .token(token)
-                .id(user.getId())
-                .username(user.getFullName())
+                .user(LoginResponse.UserResponse.builder()
+                        .id(user.getId())
+                        .fullname(user.getFullName())
+                        .department(user.getDepartment())
+                        .build())
                 .build();
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie.toString())
                 .body(new ApiResponse<>(true, loginResponse, null));
@@ -116,8 +119,11 @@ public class AuthController {
 
         LoginResponse loginResponse = LoginResponse.builder()
                 .token(newAccessToken)
-                .id(user.getId())
-                .username(user.getFullName())
+                .user(LoginResponse.UserResponse.builder()
+                        .id(user.getId())
+                        .fullname(user.getFullName())
+                        .department(user.getDepartment())
+                        .build())
                 .build();
 
         return ResponseEntity.ok(new ApiResponse<>(true, loginResponse, null));

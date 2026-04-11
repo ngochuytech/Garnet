@@ -19,9 +19,9 @@ import com.example.campushub.exceptions.auth.InvalidTokenException;
 import com.example.campushub.exceptions.auth.JwtAuthenticationException;
 import com.example.campushub.exceptions.auth.RevokedTokenException;
 import com.example.campushub.exceptions.auth.UnauthorizedException;
-import com.example.campushub.models.Token;
-import com.example.campushub.models.User;
-import com.example.campushub.repositories.TokenRepository;
+import com.example.campushub.models.jpa.Token;
+import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.TokenRepository;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;

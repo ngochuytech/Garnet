@@ -7,8 +7,8 @@ import com.example.campushub.components.JwtTokenProvider;
 import com.example.campushub.dtos.auth.LoginDTO;
 import com.example.campushub.dtos.auth.RegisterDTO;
 import com.example.campushub.exceptions.DataNotFoundException;
-import com.example.campushub.models.User;
-import com.example.campushub.repositories.UserRepository;
+import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 

@@ -1,10 +1,10 @@
-package com.example.campushub.repositories;
+package com.example.campushub.repositories.jpa;
 
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import com.example.campushub.models.User;
+import com.example.campushub.models.jpa.User;
 
 public interface UserRepository extends JpaRepository<User, String> {
     boolean existsByEmail(String email);

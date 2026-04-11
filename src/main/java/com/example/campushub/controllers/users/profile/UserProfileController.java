@@ -1,0 +1,68 @@
+package com.example.campushub.controllers.users.profile;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.example.campushub.dtos.users.ProfileSetUpDTO;
+import com.example.campushub.dtos.users.UpdateInformationDTO;
+import com.example.campushub.dtos.users.UpdatePasswordDTO;
+import com.example.campushub.models.jpa.User;
+import com.example.campushub.responses.ApiResponse;
+import com.example.campushub.responses.profiles.InformationResponse;
+import com.example.campushub.services.user.UserService;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+
+@RestController
+@RequestMapping("/users/profiles")
+@RequiredArgsConstructor
+public class UserProfileController {
+    private final UserService userService;
+
+    @PostMapping("/setup")
+    public ResponseEntity<?> setupProfile(@AuthenticationPrincipal User currentUser, @RequestBody @Valid ProfileSetUpDTO dto) throws Exception {
+        userService.setupUserProfile(currentUser, dto.getMajor(), dto.getHobbies());
+        return ResponseEntity.ok().body(ApiResponse.ok("Profile set up successfully"));
+    }
+
+    @PutMapping("/information")
+    public ResponseEntity<?> updateInformation(@AuthenticationPrincipal User currentUser, @RequestBody @Valid UpdateInformationDTO dto) throws Exception {
+        userService.updateInformationUser(currentUser, dto);
+        return ResponseEntity.ok().body(ApiResponse.ok("User information updated successfully"));
+    }
+
+    @PutMapping("/password")
+    public ResponseEntity<?> changePassword(@AuthenticationPrincipal User currentUser, @RequestBody @Valid UpdatePasswordDTO dto) throws Exception {
+        if(!dto.getNewPassword().equals(dto.getConfirmPassword())) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("New password and confirm password do not match"));
+        }
+        userService.updatePasswordUser(currentUser, dto.getCurrentPassword(), dto.getNewPassword());
+        return ResponseEntity.ok().body(ApiResponse.ok("Change password successfully"));
+    }
+
+    @PutMapping("/bio")
+    public ResponseEntity<?> updateBio(@AuthenticationPrincipal User currentUser, @RequestBody String bio) {
+        userService.updateBioUser(currentUser, bio);
+        return ResponseEntity.ok().body(ApiResponse.ok("Bio updated successfully"));
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<?> getCurrentUser(@AuthenticationPrincipal User currentUser) { 
+        return ResponseEntity.ok().body(ApiResponse.ok(InformationResponse.builder()
+                .fullname(currentUser.getFullName())
+                .dateOfBirth(currentUser.getDateOfBirth())
+                .phone(currentUser.getPhone())
+                .gender(currentUser.getGender() != null ? currentUser.getGender() : false)
+                .email(currentUser.getEmail())
+                .bio(currentUser.getBio())
+                .department(currentUser.getDepartment())
+                .build()));
+    }
+}

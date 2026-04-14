@@ -1,4 +1,4 @@
-package com.example.campushub.services.token;
+package com.example.campushub.services;
 
 import java.time.LocalDateTime;
 import java.util.List;

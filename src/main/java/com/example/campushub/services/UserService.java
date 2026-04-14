@@ -1,17 +1,14 @@
-package com.example.campushub.services.user;
+package com.example.campushub.services;
 
 import java.security.InvalidParameterException;
-import java.util.List;
+import java.util.Set;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.dtos.users.UpdateInformationDTO;
 import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.User;
-import com.example.campushub.models.neo4j.MajorNode;
-import com.example.campushub.models.neo4j.UserNode;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.MajorNeo4jRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
@@ -71,7 +68,7 @@ public class UserService {
         userRepository.save(user);
     }
 
-    public void setupUserProfile(User user, String major, List<String> hobbies) {
+    public void setupUserProfile(User user, String major, Set<String> hobbies) {
         user.setDepartment(major);
         user.setInterests(hobbies);
         user = userRepository.save(user);

@@ -1,6 +1,7 @@
 package com.example.campushub.repositories.neo4j;
 
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.data.neo4j.repository.Neo4jRepository;
 import org.springframework.data.neo4j.repository.query.Query;
@@ -27,5 +28,5 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
            "MERGE (t:Tag {name: tagName}) " + // Dùng MERGE cho Tag để user có thể tự gõ tag mới
            "MERGE (u)-[:INTERESTED_IN]->(t) " +
            "RETURN u")
-    List<UserNode> updateUserTags(@Param("userId") String userId, @Param("tags") List<String> tags);
+    List<UserNode> updateUserTags(@Param("userId") String userId, @Param("tags") Set<String> tags);
 }

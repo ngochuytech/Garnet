@@ -1,4 +1,4 @@
-package com.example.campushub.controllers.users.profile;
+package com.example.campushub.controllers.users;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -15,7 +15,7 @@ import com.example.campushub.dtos.users.UpdatePasswordDTO;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.profiles.InformationResponse;
-import com.example.campushub.services.user.UserService;
+import com.example.campushub.services.UserService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

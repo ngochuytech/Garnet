@@ -3,9 +3,8 @@ package com.example.campushub.models.jpa;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -78,7 +77,7 @@ public class User extends BaseEntity implements UserDetails {
         joinColumns = @JoinColumn(name = "user_id")
     )
     @Column(name = "interest_name")
-    private List<String> interests;
+    private Set<String> interests;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status")

@@ -1,4 +1,4 @@
-package com.example.campushub.services.auth;
+package com.example.campushub.services;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;

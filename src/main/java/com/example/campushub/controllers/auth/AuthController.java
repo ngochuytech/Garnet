@@ -17,9 +17,9 @@ import com.example.campushub.models.jpa.Token;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.LoginResponse;
-import com.example.campushub.services.auth.AuthService;
-import com.example.campushub.services.token.TokenService;
-import com.example.campushub.services.user.UserService;
+import com.example.campushub.services.AuthService;
+import com.example.campushub.services.TokenService;
+import com.example.campushub.services.UserService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

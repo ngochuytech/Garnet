@@ -27,7 +27,7 @@ public class CommentResponse {
     private String status;
     private UserResponse user;
     private String userReaction;
-    private List<CommentResponse> replies;
+    private Integer replyCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -63,7 +63,7 @@ public class CommentResponse {
                         .department(comment.getUser().getDepartment())
                         .build())
                 .userReaction(reactionStr)
-                .replies(comment.getReplies() != null ? comment.getReplies().stream().map(reply -> fromComment(reply, userReactionsMap)).collect(Collectors.toList()) : null)
+                .replyCount(comment.getReplyCount())
                 .createdAt(comment.getCreatedAt())
                 .updatedAt(comment.getUpdatedAt())
                 .build();

@@ -15,4 +15,7 @@ public interface CommentReactionRepository extends JpaRepository<CommentReaction
     CommentReaction findByCommentAndUser(Comment comment, User user);
     
     List<CommentReaction> findByUserAndComment_Post_Id(User user, String postId);
+
+    List<CommentReaction> findByUserAndCommentIn(User user, List<Comment> comments);
+
 }

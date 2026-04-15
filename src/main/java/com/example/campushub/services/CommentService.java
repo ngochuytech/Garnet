@@ -46,6 +46,30 @@ public class CommentService {
         return comments;
     }
 
+    public List<Comment> getCommentReplies(String commentId, String lastCommentId, Integer limit) throws Exception{
+        List<Comment> replies;
+        if(lastCommentId == null){
+            replies = commentRepository.findByParentComment_IdOrderByCreatedAtAsc(commentId, PageRequest.of(0 , limit));
+        } else {
+            Comment lastComment = commentRepository.findById(lastCommentId)
+                .orElseThrow(() -> new DataNotFoundException("Bình luận không tồn tại"));
+            replies = commentRepository.findByParentComment_IdAndCreatedAtGreaterThanOrderByCreatedAtAsc(commentId, lastComment.getCreatedAt(), PageRequest.of(0, limit));
+        }
+        return replies;
+    }
+
+    public Map<String, String> getUserReactionsMapForComments(User user, List<Comment> comments) {
+        Map<String, String> userReactionsMap = new HashMap<>();
+        if (user != null && comments != null && !comments.isEmpty()) {
+            List<CommentReaction> reactions = commentReactionRepository.findByUserAndCommentIn(user, comments);
+            for (CommentReaction r : reactions) {
+                userReactionsMap.put(r.getComment().getId(), r.getType().name());
+            }
+        }
+        return userReactionsMap;
+    }
+
+    @Transactional("transactionManager")
     public void createComment(User user, String postId, String parentId, String content) throws Exception {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết mà bạn muốn bình luận"));
@@ -57,6 +81,9 @@ public class CommentService {
         if (parentId != null) {
             Comment parentComment = commentRepository.findById(parentId)
                     .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận mà bạn muốn phản hồi"));
+            parentComment.setReplyCount(comment.getReplyCount() + 1);
+            commentRepository.save(parentComment);
+            
             comment.setParentComment(parentComment);
         }
         commentRepository.save(comment);

@@ -15,4 +15,9 @@ public interface CommentRepository extends JpaRepository<Comment, String>{
 
     // Load n comment cũ hơn một khoảng thời gian (dựa vào comment cuối cùng đang hiển thị)
     List<Comment> findByPostIdAndParentCommentIsNullAndCreatedAtLessThanOrderByCreatedAtDesc(String postId, LocalDateTime createdAt, Pageable pageable);
+
+    List<Comment> findByParentComment_IdOrderByCreatedAtAsc(String parentId, Pageable pageable);
+
+    List<Comment> findByParentComment_IdAndCreatedAtGreaterThanOrderByCreatedAtAsc(String parentId, LocalDateTime createdAt, Pageable pageable);
+
 }

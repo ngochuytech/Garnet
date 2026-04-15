@@ -7,6 +7,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -36,7 +37,7 @@ public class Post extends BaseEntity {
     @Column(name = "group_id")
     private String groupId;
 
-    @Column(name = "content", columnDefinition = "TEXT", nullable = false)
+    @Column(name = "content", columnDefinition = "TEXT")
     private String content;
 
     @Column(name = "liked")
@@ -46,6 +47,10 @@ public class Post extends BaseEntity {
     @Column(name = "disliked")
     @Builder.Default
     private Integer disliked = 0;
+
+    @ManyToOne
+    @JoinColumn(name = "shared_post_id")
+    private Post sharedPost;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status")

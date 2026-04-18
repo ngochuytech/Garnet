@@ -23,6 +23,7 @@ public class PostResponse {
     private Integer likeCount;
     private Integer dislikeCount;
     private String userReaction;
+    private SharedPostResponse sharedPost;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -39,7 +40,20 @@ public class PostResponse {
 
     }
 
-    public static PostResponse fromPost(Post post){
+    @Getter
+    @Setter
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    public static class SharedPostResponse {
+        private String id;
+        private AuthorResponse author;
+        private String content;
+        private LocalDateTime createdAt;
+        private LocalDateTime updatedAt;
+    }
+
+    public static PostResponse fromPost(Post post) {
         return fromPost(post, null);
     }
 
@@ -56,6 +70,19 @@ public class PostResponse {
             .likeCount(post.getLiked())
             .dislikeCount(post.getDisliked())
             .userReaction(userReaction)
+            .sharedPost(post.getSharedPost() != null ? SharedPostResponse.builder()
+                .id(post.getSharedPost().getId())
+                .content(post.getSharedPost().getContent())
+                .author(PostResponse.AuthorResponse.builder()
+                    .id(post.getSharedPost().getUser().getId())
+                    .authorName(post.getSharedPost().getUser().getFullName())
+                    .authorAvatar(post.getSharedPost().getUser().getAvatarUrl())
+                    .department(post.getSharedPost().getUser().getDepartment())
+                    .build())
+                .createdAt(post.getSharedPost().getCreatedAt())
+                .updatedAt(post.getSharedPost().getUpdatedAt())
+                .build() : null
+            )
             .createdAt(post.getCreatedAt())
             .updatedAt(post.getUpdatedAt())
             .build();

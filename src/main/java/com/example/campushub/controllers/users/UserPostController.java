@@ -1,5 +1,6 @@
 package com.example.campushub.controllers.users;
 
+import org.apiguardian.api.API;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -17,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.campushub.dtos.users.CreatePostDTO;
+import com.example.campushub.dtos.users.CreateReportPostDTO;
+import com.example.campushub.dtos.users.CreateSharePostDTO;
 import com.example.campushub.dtos.users.UpdatePostDTO;
 import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.User;
@@ -24,6 +27,7 @@ import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.PagedResponse;
 import com.example.campushub.responses.PostResponse;
 import com.example.campushub.services.PostService;
+import com.example.campushub.services.ReportService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +37,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class UserPostController {
     private final PostService postService;
+    private final ReportService reportService;
     
     @PostMapping("")
     public ResponseEntity<?> createPost(@AuthenticationPrincipal User user, @RequestBody @Valid CreatePostDTO dto) throws Exception {
@@ -88,6 +93,18 @@ public class UserPostController {
             : Sort.by(sortBy).ascending();
         Pageable pageable = PageRequest.of(page, size, sort);
         return ResponseEntity.ok().body(ApiResponse.ok(PagedResponse.from(postService.getPostsForHomeResponses(pageable, user))));
+    }
+
+    @PostMapping("/{postId}/report")
+    public ResponseEntity<?> reportPost(@AuthenticationPrincipal User user, @PathVariable String postId, @RequestBody @Valid CreateReportPostDTO dto) throws Exception {
+        reportService.createReportPost(user, dto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Báo cáo bài viết thành công!"));
+    }
+
+    @PostMapping("/{postId}/share")
+    public ResponseEntity<?> sharePost(@AuthenticationPrincipal User user, @PathVariable String postId, @RequestBody CreateSharePostDTO dto) throws Exception {
+        postService.sharePost(user, postId, dto);
+        return ResponseEntity.ok().body(ApiResponse.ok("Chia sẻ bài viết thành công"));
     }
 
     @PutMapping("/{postId}")

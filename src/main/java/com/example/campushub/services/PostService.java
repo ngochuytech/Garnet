@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.dtos.users.CreatePostDTO;
+import com.example.campushub.dtos.users.CreateSharePostDTO;
 import com.example.campushub.dtos.users.UpdatePostDTO;
 import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.enums.ReactionType;
@@ -100,6 +101,16 @@ public class PostService {
             postRepository.save(post);
             postReactionRepository.delete(reaction);
         }
+    }
+
+    public void sharePost(User user, String postId, CreateSharePostDTO dto) throws Exception {
+        Post originalPost = getActivePostById(postId);
+        Post sharedPost = Post.builder()
+                .content(dto.getContent())
+                .user(user)
+                .sharedPost(originalPost)
+                .build();
+        postRepository.save(sharedPost);
     }
 
     public Post getActivePostById(String postId) throws Exception {

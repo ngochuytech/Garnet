@@ -8,12 +8,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.dtos.users.CreatePostDTO;
+import com.example.campushub.dtos.users.UpdatePostDTO;
+import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.enums.ReactionType;
 import com.example.campushub.exceptions.DataNotFoundException;
+import com.example.campushub.exceptions.ForbiddenAccessException;
+import com.example.campushub.exceptions.InvalidContentStateException;
 import com.example.campushub.models.jpa.Post;
+import com.example.campushub.models.jpa.PostEditHistory;
 import com.example.campushub.models.jpa.PostReaction;
 import com.example.campushub.models.jpa.PostReactionId;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.PostEditHistoryRepository;
 import com.example.campushub.repositories.jpa.PostReactionRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
@@ -30,6 +36,7 @@ public class PostService {
     private final PostRepository postRepository;
     private final UserRepository userRepository;
     private final PostReactionRepository postReactionRepository;
+    private final PostEditHistoryRepository postEditHistoryRepository;
 
     public void createPost(User user, CreatePostDTO dto) throws Exception {
         Post post = Post.builder()
@@ -95,6 +102,11 @@ public class PostService {
         }
     }
 
+    public Post getActivePostById(String postId) throws Exception {
+        return postRepository.findByIdAndStatus(postId, ContentStatus.ACTIVE)
+                .orElseThrow(() -> new DataNotFoundException("Bài viết không tồn tại hoặc đã bị xóa"));
+    }
+
     public Post getPostById(String postId) throws Exception {
         return postRepository.findById(postId)
                 .orElseThrow(() -> new DataNotFoundException("Post not found"));
@@ -108,15 +120,46 @@ public class PostService {
     }
 
     public List<PostResponse> getMyPostsResponses(User user) throws Exception {
-        List<Post> posts = postRepository.findByUser(user);
+        List<Post> posts = postRepository.findByUserAndStatus(user, ContentStatus.ACTIVE);
         Map<String, String> reactions = getReactionsMap(posts, user);
         return posts.stream()
                 .map(post -> PostResponse.fromPost(post, reactions.get(post.getId())))
                 .collect(Collectors.toList());
     }
 
+    @Transactional("transactionManager")
+    public void editPost(User user, String postId, UpdatePostDTO dto) throws Exception {
+        Post post = getPostById(postId);
+        if (!post.getUser().getId().equals(user.getId())) {
+            throw new ForbiddenAccessException("Bạn không có quyền chỉnh sửa bài viết này");
+        }
+
+        if(post.getStatus() != ContentStatus.ACTIVE) {
+            throw new InvalidContentStateException("Chỉ có thể chỉnh sửa bài viết đang ở trạng thái ACTIVE");
+        }
+
+        PostEditHistory history = PostEditHistory.builder()
+                .post(post)
+                .oldContent(post.getContent())
+                .build();
+        postEditHistoryRepository.save(history);
+
+        post.setContent(dto.getContent());
+        postRepository.save(post);
+    }
+
+    @Transactional("transactionManager")
+    public void deletePost(User user, String postId) throws Exception {
+        Post post = getPostById(postId);
+        if (!post.getUser().getId().equals(user.getId())) {
+            throw new ForbiddenAccessException("Bạn không có quyền xóa bài viết này");
+        }
+        post.setStatus(ContentStatus.DELETED);
+        postRepository.save(post);
+    }
+
     public Page<PostResponse> getPostsForHomeResponses(Pageable pageable, User user) throws Exception {
-        Page<Post> posts = postRepository.findAll(pageable);
+        Page<Post> posts = postRepository.findByStatus(ContentStatus.ACTIVE, pageable);
         Map<String, String> reactions = getReactionsMap(posts.getContent(), user);
         return posts.map(post -> PostResponse.fromPost(post, reactions.get(post.getId())));
     }

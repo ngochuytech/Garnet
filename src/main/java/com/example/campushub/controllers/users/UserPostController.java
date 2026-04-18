@@ -6,15 +6,18 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.campushub.dtos.users.CreatePostDTO;
+import com.example.campushub.dtos.users.UpdatePostDTO;
 import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
@@ -51,7 +54,7 @@ public class UserPostController {
 
     @GetMapping("/{postId}")
     public ResponseEntity<?> getPostById(@AuthenticationPrincipal User user, @PathVariable String postId) throws Exception {
-        Post post = postService.getPostById(postId);
+        Post post = postService.getActivePostById(postId);
         String userReaction = postService.getUserReaction(post, user);
         return ResponseEntity.ok().body(PostResponse.builder()
                 .id(post.getId())
@@ -85,5 +88,17 @@ public class UserPostController {
             : Sort.by(sortBy).ascending();
         Pageable pageable = PageRequest.of(page, size, sort);
         return ResponseEntity.ok().body(ApiResponse.ok(PagedResponse.from(postService.getPostsForHomeResponses(pageable, user))));
+    }
+
+    @PutMapping("/{postId}")
+    public ResponseEntity<?> editPost(@AuthenticationPrincipal User user, @PathVariable String postId, @RequestBody @Valid UpdatePostDTO dto) throws Exception {
+        postService.editPost(user, postId, dto);
+        return ResponseEntity.ok().body(ApiResponse.ok(ApiResponse.ok("Cập nhật bài viết thành công")));
+    }
+
+    @DeleteMapping("/{postId}")
+    public ResponseEntity<?> deletePost(@AuthenticationPrincipal User user, @PathVariable String postId) throws Exception {
+        postService.deletePost(user, postId);
+        return ResponseEntity.ok().body(ApiResponse.ok("Xóa bài viết thành công"));
     }
 }

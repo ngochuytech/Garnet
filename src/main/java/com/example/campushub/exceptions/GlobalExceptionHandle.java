@@ -51,10 +51,21 @@ public class GlobalExceptionHandle {
         return ResponseEntity.badRequest().body(ApiResponse.error(ex.getMessage()));
     }
 
+    @ExceptionHandler(InvalidContentStateException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidContentStateException(InvalidContentStateException ex) {
+        return ResponseEntity.badRequest().body(ApiResponse.error(ex.getMessage()));
+    }
+
+    @ExceptionHandler(ForbiddenAccessException.class)
+    public ResponseEntity<ApiResponse<Void>> handleForbiddenAccessException(ForbiddenAccessException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(ex.getMessage()));
+    }
+
     @ExceptionHandler(NullPointerException.class)
     public ResponseEntity<ApiResponse<Object>> handleNullPointerException(NullPointerException ex) {
-        ex.printStackTrace(); // In ra console Ä‘á»ƒ debug
-        String errorMessage = ex.getMessage() != null ? ex.getMessage() : "Null Pointer Exception vá»›i message lĂ  null. Vui lĂ²ng kiá»ƒm tra server logs!";
+        ex.printStackTrace();
+        String errorMessage = ex.getMessage() != null ? ex.getMessage()
+                : "Null Pointer Exception vá»›i message lĂ  null. Vui lĂ²ng kiá»ƒm tra server logs!";
         StackTraceElement[] stackTrace = ex.getStackTrace();
 
         // Kiểm tra xem lỗi có phải từ việc gọi method trên currentUser null không

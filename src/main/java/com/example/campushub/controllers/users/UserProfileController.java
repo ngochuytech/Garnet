@@ -7,7 +7,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.dtos.users.ProfileSetUpDTO;
 import com.example.campushub.dtos.users.UpdateInformationDTO;
@@ -47,6 +49,12 @@ public class UserProfileController {
         return ResponseEntity.ok().body(ApiResponse.ok("Change password successfully"));
     }
 
+    @PutMapping("/avatar")
+    public ResponseEntity<?> updateAvatar(@AuthenticationPrincipal User currentUser, @RequestParam("avatarFile") MultipartFile avatarFile) throws Exception {
+        userService.updateAvatarUser(currentUser, avatarFile);
+        return ResponseEntity.ok().body(ApiResponse.ok("Cập nhật ảnh đại diện thành công"));
+    }
+
     @PutMapping("/bio")
     public ResponseEntity<?> updateBio(@AuthenticationPrincipal User currentUser, @RequestBody String bio) {
         userService.updateBioUser(currentUser, bio);
@@ -57,6 +65,7 @@ public class UserProfileController {
     public ResponseEntity<?> getCurrentUser(@AuthenticationPrincipal User currentUser) { 
         return ResponseEntity.ok().body(ApiResponse.ok(InformationResponse.builder()
                 .fullname(currentUser.getFullName())
+                .avatarUrl(currentUser.getAvatarUrl())
                 .dateOfBirth(currentUser.getDateOfBirth())
                 .phone(currentUser.getPhone())
                 .gender(currentUser.getGender() != null ? currentUser.getGender() : false)

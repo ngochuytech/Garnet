@@ -15,12 +15,14 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "posts")
-@Data
+@Getter
+@Setter
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
@@ -46,6 +48,14 @@ public class Post extends BaseEntity {
     @Column(name = "disliked")
     @Builder.Default
     private Integer disliked = 0;
+
+    @Column(name = "comment_count")
+    @Builder.Default
+    private Integer commentCount = 0;
+
+    @Column(name = "shared_count")
+    @Builder.Default
+    private Integer sharedCount = 0;
 
     @ManyToOne
     @JoinColumn(name = "shared_post_id")

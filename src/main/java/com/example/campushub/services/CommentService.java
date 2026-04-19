@@ -27,6 +27,7 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final CommentReactionRepository commentReactionRepository;
     private final PostRepository postRepository;
+    private final PostService postService;
 
     public List<Comment> getCommentsByPostId(String postId, String lastCommentId, int limit) throws Exception {
         List<Comment> comments;
@@ -71,8 +72,8 @@ public class CommentService {
 
     @Transactional("transactionManager")
     public void createComment(User user, String postId, String parentId, String content) throws Exception {
-        Post post = postRepository.findById(postId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết mà bạn muốn bình luận"));
+        Post post = postService.getActivePostById(postId);
+
         Comment comment = Comment.builder()
                 .post(post)
                 .user(user)
@@ -81,11 +82,11 @@ public class CommentService {
         if (parentId != null) {
             Comment parentComment = commentRepository.findById(parentId)
                     .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận mà bạn muốn phản hồi"));
-            parentComment.setReplyCount(comment.getReplyCount() + 1);
-            commentRepository.save(parentComment);
+            commentRepository.incrementReplyCount(parentId);
             
             comment.setParentComment(parentComment);
         }
+        postRepository.incrementCommentCount(postId);
         commentRepository.save(comment);
     }
 

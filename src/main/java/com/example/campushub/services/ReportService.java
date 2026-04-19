@@ -36,6 +36,10 @@ public class ReportService {
         Post post = postRepository.findById(dto.getTargetId())
             .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết cần báo cáo!"));
         
+        if (reportRepository.existsByReporterAndTargetTypeAndTargetId(reporter, type, post.getId())) {
+            throw new InvalidParamException("Bạn đã báo cáo bài viết này rồi!");
+        }
+        
         Report report = Report.builder()
                 .reporter(reporter)
                 .targetType(type)

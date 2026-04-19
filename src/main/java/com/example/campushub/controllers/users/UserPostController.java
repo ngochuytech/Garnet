@@ -1,6 +1,8 @@
 package com.example.campushub.controllers.users;
 
-import org.apiguardian.api.API;
+import java.util.Map;
+
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -38,83 +40,87 @@ import lombok.RequiredArgsConstructor;
 public class UserPostController {
     private final PostService postService;
     private final ReportService reportService;
-    
+
+    @GetMapping("/me")
+    public ResponseEntity<?> getMyPosts(@AuthenticationPrincipal User user, @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "5") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir) throws Exception {
+        Sort sort = sortDir.equalsIgnoreCase("desc")
+                ? Sort.by(sortBy).descending()
+                : Sort.by(sortBy).ascending();
+        Pageable pageable = PageRequest.of(page, size, sort);
+
+        return ResponseEntity.ok()
+                .body(ApiResponse.ok(PagedResponse.from(postService.getActivePostsByUserId(user.getId(), pageable, user))));
+    }
+
+    @GetMapping("/{postId}")
+    public ResponseEntity<?> getPostById(@AuthenticationPrincipal User user, @PathVariable String postId)
+            throws Exception {
+        Post post = postService.getActivePostById(postId);
+        String userReaction = postService.getUserReaction(post, user);
+        return ResponseEntity.ok().body(ApiResponse.ok(PostResponse.fromPost(post, userReaction)));
+    }
+
+    @GetMapping("")
+    public ResponseEntity<?> getPosts(@AuthenticationPrincipal User user, @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "3") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir) throws Exception {
+        Sort sort = sortDir.equalsIgnoreCase("desc")
+                ? Sort.by(sortBy).descending()
+                : Sort.by(sortBy).ascending();
+        Pageable pageable = PageRequest.of(page, size, sort);
+        return ResponseEntity.ok()
+                .body(ApiResponse.ok(PagedResponse.from(postService.getPostsForHomeResponses(pageable, user))));
+    }
+
     @PostMapping("")
-    public ResponseEntity<?> createPost(@AuthenticationPrincipal User user, @RequestBody @Valid CreatePostDTO dto) throws Exception {
+    public ResponseEntity<?> createPost(@AuthenticationPrincipal User user, @RequestBody @Valid CreatePostDTO dto)
+            throws Exception {
         postService.createPost(user, dto);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Create post successfully"));
     }
 
     @PostMapping("/{postId}/like")
-    public ResponseEntity<?> likePost(@AuthenticationPrincipal User user, @PathVariable String postId) throws Exception {
+    public ResponseEntity<?> likePost(@AuthenticationPrincipal User user, @PathVariable String postId)
+            throws Exception {
         postService.likePost(user, postId);
         return ResponseEntity.ok().body(ApiResponse.ok("Liked post successfully"));
     }
 
     @PostMapping("/{postId}/dislike")
-    public ResponseEntity<?> dislikePost(@AuthenticationPrincipal User user, @PathVariable String postId) throws Exception {
+    public ResponseEntity<?> dislikePost(@AuthenticationPrincipal User user, @PathVariable String postId)
+            throws Exception {
         postService.dislikePost(user, postId);
         return ResponseEntity.ok().body(ApiResponse.ok("Disliked post successfully"));
     }
 
-    @GetMapping("/{postId}")
-    public ResponseEntity<?> getPostById(@AuthenticationPrincipal User user, @PathVariable String postId) throws Exception {
-        Post post = postService.getActivePostById(postId);
-        String userReaction = postService.getUserReaction(post, user);
-        return ResponseEntity.ok().body(PostResponse.builder()
-                .id(post.getId())
-                .content(post.getContent())
-                .author(PostResponse.AuthorResponse.builder()
-                        .id(post.getUser().getId())
-                        .authorName(post.getUser().getFullName())
-                        .department(post.getUser().getDepartment())
-                        .build())
-                .likeCount(post.getLiked())
-                .dislikeCount(post.getDisliked())
-                .userReaction(userReaction)
-                .createdAt(post.getCreatedAt())
-                .updatedAt(post.getUpdatedAt())
-                .build());
-    }
-
-    @GetMapping("/me")
-    public ResponseEntity<?> getMyPosts(@AuthenticationPrincipal User user) throws Exception {
-        return ResponseEntity.ok().body(ApiResponse.ok(postService.getMyPostsResponses(user)));
-    }
-
-    @GetMapping("")
-    public ResponseEntity<?> getPosts(@AuthenticationPrincipal User user, @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "3") int size,
-        @RequestParam(defaultValue = "createdAt") String sortBy,
-        @RequestParam(defaultValue = "desc") String sortDir
-    ) throws Exception {
-        Sort sort = sortDir.equalsIgnoreCase("desc")
-            ? Sort.by(sortBy).descending()
-            : Sort.by(sortBy).ascending();
-        Pageable pageable = PageRequest.of(page, size, sort);
-        return ResponseEntity.ok().body(ApiResponse.ok(PagedResponse.from(postService.getPostsForHomeResponses(pageable, user))));
-    }
-
     @PostMapping("/{postId}/report")
-    public ResponseEntity<?> reportPost(@AuthenticationPrincipal User user, @PathVariable String postId, @RequestBody @Valid CreateReportPostDTO dto) throws Exception {
+    public ResponseEntity<?> reportPost(@AuthenticationPrincipal User user, @PathVariable String postId,
+            @RequestBody @Valid CreateReportPostDTO dto) throws Exception {
         reportService.createReportPost(user, dto);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Báo cáo bài viết thành công!"));
     }
 
     @PostMapping("/{postId}/share")
-    public ResponseEntity<?> sharePost(@AuthenticationPrincipal User user, @PathVariable String postId, @RequestBody CreateSharePostDTO dto) throws Exception {
+    public ResponseEntity<?> sharePost(@AuthenticationPrincipal User user, @PathVariable String postId,
+            @RequestBody CreateSharePostDTO dto) throws Exception {
         postService.sharePost(user, postId, dto);
-        return ResponseEntity.ok().body(ApiResponse.ok("Chia sẻ bài viết thành công"));
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Chia sẻ bài viết thành công"));
     }
 
     @PutMapping("/{postId}")
-    public ResponseEntity<?> editPost(@AuthenticationPrincipal User user, @PathVariable String postId, @RequestBody @Valid UpdatePostDTO dto) throws Exception {
+    public ResponseEntity<?> editPost(@AuthenticationPrincipal User user, @PathVariable String postId,
+            @RequestBody @Valid UpdatePostDTO dto) throws Exception {
         postService.editPost(user, postId, dto);
         return ResponseEntity.ok().body(ApiResponse.ok(ApiResponse.ok("Cập nhật bài viết thành công")));
     }
 
     @DeleteMapping("/{postId}")
-    public ResponseEntity<?> deletePost(@AuthenticationPrincipal User user, @PathVariable String postId) throws Exception {
+    public ResponseEntity<?> deletePost(@AuthenticationPrincipal User user, @PathVariable String postId)
+            throws Exception {
         postService.deletePost(user, postId);
         return ResponseEntity.ok().body(ApiResponse.ok("Xóa bài viết thành công"));
     }

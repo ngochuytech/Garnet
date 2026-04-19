@@ -1,8 +1,8 @@
 package com.example.campushub.responses;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.models.jpa.Post;
 
 import lombok.AllArgsConstructor;
@@ -22,6 +22,8 @@ public class PostResponse {
     private String content;
     private Integer likeCount;
     private Integer dislikeCount;
+    private Integer commentCount;
+    private Integer shareCount;
     private String userReaction;
     private SharedPostResponse sharedPost;
     private LocalDateTime createdAt;
@@ -69,16 +71,18 @@ public class PostResponse {
             .content(post.getContent())
             .likeCount(post.getLiked())
             .dislikeCount(post.getDisliked())
+            .commentCount(post.getCommentCount())
+            .shareCount(post.getSharedCount())
             .userReaction(userReaction)
             .sharedPost(post.getSharedPost() != null ? SharedPostResponse.builder()
                 .id(post.getSharedPost().getId())
-                .content(post.getSharedPost().getContent())
-                .author(PostResponse.AuthorResponse.builder()
+                .content(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? post.getSharedPost().getContent() : "Nội dung này không còn khả dụng hoặc đã bị tác giả gỡ bỏ.")
+                .author(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? PostResponse.AuthorResponse.builder()
                     .id(post.getSharedPost().getUser().getId())
                     .authorName(post.getSharedPost().getUser().getFullName())
                     .authorAvatar(post.getSharedPost().getUser().getAvatarUrl())
                     .department(post.getSharedPost().getUser().getDepartment())
-                    .build())
+                    .build() : null)
                 .createdAt(post.getSharedPost().getCreatedAt())
                 .updatedAt(post.getSharedPost().getUpdatedAt())
                 .build() : null

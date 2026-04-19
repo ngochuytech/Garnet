@@ -5,6 +5,7 @@ import java.util.Set;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.dtos.users.UpdateInformationDTO;
 import com.example.campushub.exceptions.InvalidParamException;
@@ -23,6 +24,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserNeo4jRepository userNeo4jRepository;
     private final MajorNeo4jRepository majorNeo4jRepository;
+    private final FileUploadService fileUploadService;
 
     public User getUserFromEmail(String email) throws Exception {
         return userRepository.findByEmail(email)
@@ -87,5 +89,25 @@ public class UserService {
             userRepository.save(user);
             throw new RuntimeException("Cập nhật hồ sơ thất bại tại Neo4j", e);
         }
+    }
+
+    public void updateAvatarUser(User user, MultipartFile avatarFile) throws Exception {
+        if (avatarFile == null || avatarFile.isEmpty()) {
+            throw new IllegalArgumentException("File ảnh không được để trống");
+        }
+        // Validate file type and size
+        String contentType = avatarFile.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new InvalidParameterException("File phải là định dạng hình ảnh");
+        }
+        if (avatarFile.getSize() > 5 * 1024 * 1024) { // 5MB limit
+            throw new InvalidParameterException("Kích thước ảnh tối đa 5MB.");
+        }
+
+        // Upload to Cloudinary and get the URL
+        String avatarUrl = fileUploadService.uploadFile(avatarFile, "avatars");
+
+        user.setAvatarUrl(avatarUrl);
+        userRepository.save(user);
     }
 }

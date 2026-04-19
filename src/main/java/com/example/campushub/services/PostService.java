@@ -103,8 +103,19 @@ public class PostService {
         }
     }
 
+    @Transactional("transactionManager")
     public void sharePost(User user, String postId, CreateSharePostDTO dto) throws Exception {
-        Post originalPost = getActivePostById(postId);
+        Post targetPost = getActivePostById(postId);
+        String originalPostId;
+        if(targetPost.getSharedPost() != null) {
+            originalPostId = targetPost.getSharedPost().getId();
+        } else {
+            originalPostId = targetPost.getId();
+        }
+        Post originalPost = getActivePostById(originalPostId);
+        originalPost.setSharedCount(originalPost.getSharedCount() + 1);
+        postRepository.save(originalPost);
+        
         Post sharedPost = Post.builder()
                 .content(dto.getContent())
                 .user(user)
@@ -166,7 +177,23 @@ public class PostService {
             throw new ForbiddenAccessException("Bạn không có quyền xóa bài viết này");
         }
         post.setStatus(ContentStatus.DELETED);
+        
+        Post sharedPost;
+        if(post.getSharedPost() != null) {
+            sharedPost = post.getSharedPost();
+            sharedPost.setSharedCount(sharedPost.getSharedCount() - 1);
+            postRepository.save(sharedPost);
+        }
         postRepository.save(post);
+    }
+
+    public Page<PostResponse> getActivePostsByUserId(String userId, Pageable pageable, User currentUser) throws Exception {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+        Page<Post> posts = postRepository.findByUserAndStatus(user, ContentStatus.ACTIVE, pageable);
+        Map<String, String> reactions = getReactionsMap(posts.getContent(), currentUser);
+        return posts.map(post -> PostResponse.fromPost(post, reactions.get(post.getId())));
+        
     }
 
     public Page<PostResponse> getPostsForHomeResponses(Pageable pageable, User user) throws Exception {

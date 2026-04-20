@@ -5,6 +5,7 @@ import java.util.Set;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.dtos.users.UpdateInformationDTO;
@@ -109,5 +110,31 @@ public class UserService {
 
         user.setAvatarUrl(avatarUrl);
         userRepository.save(user);
+    }
+
+    @Transactional("neo4jTransactionManager")
+    public void updateTopicUser(User user, Set<String> topic) {
+        Set<String> oldTopics = user.getInterests();
+        boolean isNull = topic == null || topic.isEmpty();
+        
+        Set<String> newTopics = isNull ? Set.of() : topic;
+        user.setInterests(newTopics);
+        user = userRepository.save(user);
+
+        try {
+            userNeo4jRepository.removeOldTopics(user.getId(), newTopics);
+            if (!newTopics.isEmpty()) {
+                userNeo4jRepository.addNewTopics(user.getId(), newTopics);
+            }
+        } catch (Exception e) {
+            // Rollback thủ công trên JPA nếu thao tác trên Neo4j thất bại
+            user.setInterests(oldTopics);
+            userRepository.save(user);
+            throw new RuntimeException("Cập nhật Topic thất bại tại Neo4j", e);
+        }
+    }
+
+    public Set<String> getUserTopics(User user) {
+        return user.getInterests();
     }
 }

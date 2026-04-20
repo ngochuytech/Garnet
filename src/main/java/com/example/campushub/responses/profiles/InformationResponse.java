@@ -1,6 +1,7 @@
 package com.example.campushub.responses.profiles;
 
 import java.time.LocalDate;
+import java.util.Set;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -20,4 +21,5 @@ public class InformationResponse {
     private String email;
     private String bio;
     private String department;
+    private Set<String> topics;
 }

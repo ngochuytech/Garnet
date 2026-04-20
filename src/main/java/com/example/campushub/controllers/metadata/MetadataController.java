@@ -34,7 +34,7 @@ public class MetadataController {
 
     @GetMapping("/tags")
     public ResponseEntity<?> getAllTags() {
-        List<String> tags = tagNeo4jRepository.findAll().stream()
+        List<String> tags = tagNeo4jRepository.findLeafTags().stream()
                 .map(TagNode::getName)
                 .collect(Collectors.toList());
         return ResponseEntity.ok().body(ApiResponse.ok(tags));

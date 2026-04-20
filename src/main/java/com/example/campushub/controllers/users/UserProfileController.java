@@ -1,5 +1,7 @@
 package com.example.campushub.controllers.users;
 
+import java.util.Set;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -58,11 +60,18 @@ public class UserProfileController {
     @PutMapping("/bio")
     public ResponseEntity<?> updateBio(@AuthenticationPrincipal User currentUser, @RequestBody String bio) {
         userService.updateBioUser(currentUser, bio);
-        return ResponseEntity.ok().body(ApiResponse.ok("Bio updated successfully"));
+        return ResponseEntity.ok().body(ApiResponse.ok("Cập nhật giới thiệu thành công"));
+    }
+
+    @PutMapping("/topic")
+    public ResponseEntity<?> updateTopic(@AuthenticationPrincipal User currentUser, @RequestBody Set<String> topic) {
+        userService.updateTopicUser(currentUser, topic);
+        return ResponseEntity.ok().body(ApiResponse.ok("Cập nhật chủ đề quan tâm thành công"));
     }
 
     @GetMapping("/me")
-    public ResponseEntity<?> getCurrentUser(@AuthenticationPrincipal User currentUser) { 
+    public ResponseEntity<?> getCurrentUser(@AuthenticationPrincipal User currentUser) {
+        Set<String> topics = userService.getUserTopics(currentUser); 
         return ResponseEntity.ok().body(ApiResponse.ok(InformationResponse.builder()
                 .fullname(currentUser.getFullName())
                 .avatarUrl(currentUser.getAvatarUrl())
@@ -72,6 +81,7 @@ public class UserProfileController {
                 .email(currentUser.getEmail())
                 .bio(currentUser.getBio())
                 .department(currentUser.getDepartment())
+                .topics(topics)
                 .build()));
     }
 }

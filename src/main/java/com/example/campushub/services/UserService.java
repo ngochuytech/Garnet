@@ -1,6 +1,7 @@
 package com.example.campushub.services;
 
 import java.security.InvalidParameterException;
+import java.util.List;
 import java.util.Set;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -13,7 +14,9 @@ import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.MajorNeo4jRepository;
+import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
+import com.example.campushub.responses.TopicResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -25,6 +28,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserNeo4jRepository userNeo4jRepository;
     private final MajorNeo4jRepository majorNeo4jRepository;
+    private final TagNeo4jRepository tagNeo4jRepository;
     private final FileUploadService fileUploadService;
 
     public User getUserFromEmail(String email) throws Exception {
@@ -134,7 +138,7 @@ public class UserService {
         }
     }
 
-    public Set<String> getUserTopics(User user) {
-        return user.getInterests();
+    public List<TopicResponse> getUserTopics(User user) {
+        return tagNeo4jRepository.getTopicUserCounts(user.getId());
     }
 }

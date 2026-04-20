@@ -13,6 +13,7 @@ import com.example.campushub.models.neo4j.TagNode;
 import com.example.campushub.repositories.neo4j.MajorNeo4jRepository;
 import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
 import com.example.campushub.responses.ApiResponse;
+import com.example.campushub.responses.TopicResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -34,9 +35,7 @@ public class MetadataController {
 
     @GetMapping("/tags")
     public ResponseEntity<?> getAllTags() {
-        List<String> tags = tagNeo4jRepository.findLeafTags().stream()
-                .map(TagNode::getName)
-                .collect(Collectors.toList());
+        List<TopicResponse> tags = tagNeo4jRepository.findLeafTags();
         return ResponseEntity.ok().body(ApiResponse.ok(tags));
     }
 }

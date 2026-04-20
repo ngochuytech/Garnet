@@ -1,5 +1,6 @@
 package com.example.campushub.controllers.users;
 
+import java.util.List;
 import java.util.Set;
 
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,7 @@ import com.example.campushub.dtos.users.UpdateInformationDTO;
 import com.example.campushub.dtos.users.UpdatePasswordDTO;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
+import com.example.campushub.responses.TopicResponse;
 import com.example.campushub.responses.profiles.InformationResponse;
 import com.example.campushub.services.UserService;
 
@@ -71,7 +73,7 @@ public class UserProfileController {
 
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(@AuthenticationPrincipal User currentUser) {
-        Set<String> topics = userService.getUserTopics(currentUser); 
+        List<TopicResponse> topics = userService.getUserTopics(currentUser); 
         return ResponseEntity.ok().body(ApiResponse.ok(InformationResponse.builder()
                 .fullname(currentUser.getFullName())
                 .avatarUrl(currentUser.getAvatarUrl())

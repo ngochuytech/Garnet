@@ -1,8 +1,5 @@
 package com.example.campushub.controllers.users;
 
-import java.util.Map;
-
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -43,7 +40,7 @@ public class UserPostController {
 
     @GetMapping("/me")
     public ResponseEntity<?> getMyPosts(@AuthenticationPrincipal User user, @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "5") int size,
+            @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir) throws Exception {
         Sort sort = sortDir.equalsIgnoreCase("desc")
@@ -65,7 +62,7 @@ public class UserPostController {
 
     @GetMapping("")
     public ResponseEntity<?> getPosts(@AuthenticationPrincipal User user, @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "3") int size,
+            @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir) throws Exception {
         Sort sort = sortDir.equalsIgnoreCase("desc")

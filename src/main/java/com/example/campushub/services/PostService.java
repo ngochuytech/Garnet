@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.dtos.users.CreatePostDTO;
 import com.example.campushub.dtos.users.CreateSharePostDTO;
@@ -38,12 +39,19 @@ public class PostService {
     private final UserRepository userRepository;
     private final PostReactionRepository postReactionRepository;
     private final PostEditHistoryRepository postEditHistoryRepository;
+    private final FileUploadService fileUploadService;
 
-    public void createPost(User user, CreatePostDTO dto) throws Exception {
+    public void createPost(User user, CreatePostDTO dto, List<MultipartFile> images) throws Exception {
         Post post = Post.builder()
                 .content(dto.getContent())
                 .user(user)
                 .build();
+                
+        if (images != null && !images.isEmpty()) {
+            List<String> imageUrls = fileUploadService.uploadFiles(images, "posts");
+            post.setImages(imageUrls);
+        }
+        
         postRepository.save(post);
     }
 

@@ -15,6 +15,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.multipart.MultipartFile;
+import java.util.List;
 
 import com.example.campushub.dtos.users.CreatePostDTO;
 import com.example.campushub.dtos.users.CreateReportPostDTO;
@@ -74,9 +77,12 @@ public class UserPostController {
     }
 
     @PostMapping("")
-    public ResponseEntity<?> createPost(@AuthenticationPrincipal User user, @RequestBody @Valid CreatePostDTO dto)
+    public ResponseEntity<?> createPost(
+            @AuthenticationPrincipal User user, 
+            @ModelAttribute @Valid CreatePostDTO dto,
+            @RequestParam(value = "images", required = false) List<MultipartFile> images)
             throws Exception {
-        postService.createPost(user, dto);
+        postService.createPost(user, dto, images);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Create post successfully"));
     }
 

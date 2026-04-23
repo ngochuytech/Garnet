@@ -1,8 +1,6 @@
 package com.example.campushub.responses.profiles;
 
-import java.time.LocalDate;
 import java.util.List;
-import java.util.Set;
 
 import com.example.campushub.responses.TopicResponse;
 
@@ -15,15 +13,13 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class InformationResponse {
+public class AnotherUserResponse {
+    private String id;
     private String fullname;
     private String avatarUrl;
-    private LocalDate dateOfBirth;
-    private String phone;
-    private boolean gender;
-    private String email;
     private String bio;
     private String department;
+    private boolean isFollowing;
     private Long followersCount;
     private Long followingCount;
     private List<TopicResponse> topics;

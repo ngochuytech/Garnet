@@ -21,4 +21,7 @@ public class UserNode {
     @Relationship(type = "INTERESTED_IN", direction = Relationship.Direction.OUTGOING)
     private Set<TagNode> interests = new HashSet<>();
 
+    @Relationship(type = "FOLLOWS", direction = Relationship.Direction.OUTGOING)
+    private Set<UserNode> following;
+
 }

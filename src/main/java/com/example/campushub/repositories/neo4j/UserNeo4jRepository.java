@@ -8,41 +8,90 @@ import org.springframework.data.neo4j.repository.query.Query;
 import org.springframework.stereotype.Repository;
 
 import com.example.campushub.models.neo4j.UserNode;
+import com.example.campushub.responses.FollowStats;
 
 import org.springframework.data.repository.query.Param;
 
 @Repository
 public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
-    // 1. Nối User với Ngành học
-    // Dùng MERGE cho User để đảm bảo: Nếu user chưa có trong Neo4j thì tự tạo luôn!
-    @Query("MERGE (u:User {id: $userId}) " +
-           "MERGE (m:Major {name: $majorName}) " + 
-           "MERGE (u)-[:MAJORS_IN]->(m) " +
-           "RETURN u")
-    List<UserNode> updateUserMajor(@Param("userId") String userId, @Param("majorName") String majorName);
+       // 1. Nối User với Ngành học
+       // Dùng MERGE cho User để đảm bảo: Nếu user chưa có trong Neo4j thì tự tạo luôn!
+       @Query("MERGE (u:User {id: $userId}) " +
+                     "MERGE (m:Major {name: $majorName}) " +
+                     "MERGE (u)-[:MAJORS_IN]->(m) " +
+                     "RETURN u")
+       List<UserNode> updateUserMajor(@Param("userId") String userId, @Param("majorName") String majorName);
 
-    // 2. Nối User với Sở thích / Kỹ năng
-    // Dùng UNWIND để xử lý toàn bộ mảng List<String> trong 1 lần kết nối tới Database
-    @Query("MERGE (u:User {id: $userId}) " +
-           "WITH u UNWIND $tags AS tagName " +
-           "MERGE (t:Tag {name: tagName}) " + // Dùng MERGE cho Tag để user có thể tự gõ tag mới
-           "WITH u, t " +
-           "WHERE NOT ()-[:SPECIFIC_OF]->(t) " + // Đảm bảo t là node lá (không có SpecificInterest nào chỉ vào nó)
-           "MERGE (u)-[:INTERESTED_IN]->(t) " +
-           "RETURN u")
-    List<UserNode> updateUserTags(@Param("userId") String userId, @Param("tags") Set<String> tags);
+       // 2. Nối User với Sở thích / Kỹ năng
+       // Dùng UNWIND để xử lý toàn bộ mảng List<String> trong 1 lần kết nối tới
+       // Database
+       @Query("MERGE (u:User {id: $userId}) " +
+                     "WITH u UNWIND $tags AS tagName " +
+                     "MERGE (t:Tag {name: tagName}) " + // Dùng MERGE cho Tag để user có thể tự gõ tag mới
+                     "WITH u, t " +
+                     "WHERE NOT ()-[:SPECIFIC_OF]->(t) " + // Đảm bảo t là node lá (không có SpecificInterest nào chỉ
+                                                           // vào nó)
+                     "MERGE (u)-[:INTERESTED_IN]->(t) " +
+                     "RETURN u")
+       List<UserNode> updateUserTags(@Param("userId") String userId, @Param("tags") Set<String> tags);
 
-    // 3. Xóa các topic cũ đang liên kết mà không có trong danh sách mới
-    @Query("MATCH (u:User {id: $userId})-[r:INTERESTED_IN]->(t:Tag) " +
-           "WHERE NOT t.name IN CASE WHEN $topics IS NULL THEN [] ELSE $topics END " +
-           "DELETE r")
-    void removeOldTopics(@Param("userId") String userId, @Param("topics") Set<String> topics);
+       // 3. Xóa các topic cũ đang liên kết mà không có trong danh sách mới
+       @Query("MATCH (u:User {id: $userId})-[r:INTERESTED_IN]->(t:Tag) " +
+                     "WHERE NOT t.name IN CASE WHEN $topics IS NULL THEN [] ELSE $topics END " +
+                     "DELETE r")
+       void removeOldTopics(@Param("userId") String userId, @Param("topics") Set<String> topics);
 
-    // 4. Thêm các topic mới 
-    @Query("MATCH (u:User {id: $userId}) " +
-           "UNWIND CASE WHEN $topics IS NULL THEN [] ELSE $topics END AS topicName " +
-           "MATCH (newTag:Tag {name: topicName}) " +
-           "WHERE NOT ()-[:SPECIFIC_OF]->(newTag) " + 
-           "MERGE (u)-[:INTERESTED_IN]->(newTag)") 
-    void addNewTopics(@Param("userId") String userId, @Param("topics") Set<String> topics);
+       // 4. Thêm các topic mới
+       @Query("MATCH (u:User {id: $userId}) " +
+                     "UNWIND CASE WHEN $topics IS NULL THEN [] ELSE $topics END AS topicName " +
+                     "MATCH (newTag:Tag {name: topicName}) " +
+                     "WHERE NOT ()-[:SPECIFIC_OF]->(newTag) " +
+                     "MERGE (u)-[:INTERESTED_IN]->(newTag)")
+       void addNewTopics(@Param("userId") String userId, @Param("topics") Set<String> topics);
+
+       // 5. Tạo lượt theo dõi mới người dùng
+       @Query("MATCH (a:User {id: $followerId}), (b:User {id: $targetId}) " +
+                     "MERGE (a)-[r:FOLLOWS]->(b) " +
+                     "RETURN count(r) > 0")
+       boolean followUser(@Param("followerId") String followerId, @Param("targetId") String targetId);
+
+       // 6. Hủy theo dõi
+       @Query("MATCH (a:User {id: $followerId})-[r:FOLLOWS]->(b:User {id: $targetId}) " +
+                     "DELETE r")
+       void unfollowUser(@Param("followerId") String followerId, @Param("targetId") String targetId);
+
+       // 7. Kiểm tra trạng thái (Trả về true nếu A đang follow B)
+       @Query("MATCH (a:User {id: $followerId})-[r:FOLLOWS]->(b:User {id: $targetId}) RETURN count(r) > 0")
+       boolean isFollowing(@Param("followerId") String followerId, @Param("targetId") String targetId);
+
+       // 8. Đếm số người đang theo dõi và người theo dõi
+       @Query("MATCH (:User {id: $userId})-[FOLLOWS]->(f:User) RETURN count(f)")
+       long countFollowing(@Param("userId") String userId);
+
+       @Query("MATCH (f:User)-[FOLLOWS]->(:User {id: $userId}) RETURN COUNT(f)")
+       long countFollowers(@Param("userId") String userId);
+
+       @Query("MATCH (u:User {id: $userId}) " +
+                     "RETURN COUNT { (u)-[:FOLLOWS]->() } AS followingCount, " +
+                     "COUNT { (u)<-[:FOLLOWS]-() } AS followersCount")
+       FollowStats getFollowStats(@Param("userId") String userId);
+
+       // 9. Lấy 5 gợi ý kết bạn dựa trên số lượng kỹ năng/ sở thích chung
+       @Query("MATCH (me:User {id: $currentUserId})-[:INTERESTED_IN]->(t:Tag)<-[:INTERESTED_IN]-(suggested:User) " +
+                     "WHERE me <> suggested AND NOT (me)-[:FOLLOWS]->(suggested) " +
+                     "WITH suggested, count(t) AS sharedInterests " +
+                     "ORDER BY sharedInterests DESC " +
+                     "LIMIT 5 " +
+                     "RETURN suggested.id")
+       List<String> getSuggestedUserByHooby(@Param("currentUserId") String currentUserId);
+
+       // 10. Thuật toán quét "Phòng hở" (Fallback): Chỉ lấy 5 người ngẫu nhiên chưa
+       // follow
+       // Dùng cho TH người dùng mới chưa có sở thích nào hoặc sở thích quá ít để gợi ý
+       // chính xác
+       @Query("MATCH (me:User {id: $currentUserId}), (suggested:User) " +
+                     "WHERE me <> suggested AND NOT (me)-[:FOLLOWS]->(suggested) " +
+                     "RETURN suggested.id " +
+                     "LIMIT 5")
+       List<String> getRandomSuggestedUser(@Param("currentUserId") String currentUserId);
 }

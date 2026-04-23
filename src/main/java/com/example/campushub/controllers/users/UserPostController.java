@@ -55,6 +55,21 @@ public class UserPostController {
                 .body(ApiResponse.ok(PagedResponse.from(postService.getActivePostsByUserId(user.getId(), pageable, user))));
     }
 
+    @GetMapping("/by-user/{userId}")
+    public ResponseEntity<?> getPostsByUserId(@AuthenticationPrincipal User user, @PathVariable String userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir) throws Exception {
+        Sort sort = sortDir.equalsIgnoreCase("desc")
+                ? Sort.by(sortBy).descending()
+                : Sort.by(sortBy).ascending();
+        Pageable pageable = PageRequest.of(page, size, sort);
+
+        return ResponseEntity.ok()
+                .body(ApiResponse.ok(PagedResponse.from(postService.getActivePostsByUserId(userId, pageable, user))));
+    }
+
     @GetMapping("/{postId}")
     public ResponseEntity<?> getPostById(@AuthenticationPrincipal User user, @PathVariable String postId)
             throws Exception {

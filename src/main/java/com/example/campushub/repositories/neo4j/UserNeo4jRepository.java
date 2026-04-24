@@ -64,6 +64,12 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
        @Query("MATCH (a:User {id: $followerId})-[r:FOLLOWS]->(b:User {id: $targetId}) RETURN count(r) > 0")
        boolean isFollowing(@Param("followerId") String followerId, @Param("targetId") String targetId);
 
+       @Query("MATCH (me:User {id: $followerId})-[:FOLLOWS]->(target:User) " +
+                     "WHERE target.id IN $targetIds " +
+                     "RETURN target.id")
+       Set<String> findFollowingIdsInList(@Param("followerId") String followerId,
+                     @Param("targetIds") List<String> targetIds);
+
        // 8. Đếm số người đang theo dõi và người theo dõi
        @Query("MATCH (:User {id: $userId})-[FOLLOWS]->(f:User) RETURN count(f)")
        long countFollowing(@Param("userId") String userId);
@@ -94,4 +100,24 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
                      "RETURN suggested.id " +
                      "LIMIT 5")
        List<String> getRandomSuggestedUser(@Param("currentUserId") String currentUserId);
+
+       // 11. Lấy danh sách ID những người mà User đang theo dõi (Following)
+       @Query("MATCH (u:User {id: $userId})-[:FOLLOWS]->(f:User) " +
+                     "RETURN f.id " +
+                     "ORDER BY f.id ASC " +
+                     "SKIP $offset LIMIT $limitPlusOne")
+       List<String> findFollowingIdsPaging(
+                     @Param("userId") String userId,
+                     @Param("offset") long offset,
+                     @Param("limitPlusOne") int limitPlusOne);
+
+       // Lấy danh sách ID những người đang theo dõi User (Followers)
+       @Query("MATCH (f:User)-[:FOLLOWS]->(u:User {id: $userId}) " +
+                     "RETURN f.id " +
+                     "ORDER BY f.id ASC " +
+                     "SKIP $offset LIMIT $limitPlusOne")
+       List<String> findFollowerIdsPaging(
+                     @Param("userId") String userId,
+                     @Param("offset") long offset,
+                     @Param("limitPlusOne") int limitPlusOne);
 }

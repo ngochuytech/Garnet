@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -19,6 +20,7 @@ import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.FollowResponse;
 import com.example.campushub.responses.PagedResponse;
+import com.example.campushub.responses.profiles.AnotherUserResponse;
 import com.example.campushub.services.FollowService;
 
 import lombok.RequiredArgsConstructor;
@@ -69,5 +71,27 @@ public class UserFollowController {
         Pageable pageable = PageRequest.of(page, size, sort);
         Page<FollowResponse> searchResults = followService.searchUsers(currentUser.getId(), query, pageable);
         return ResponseEntity.ok(PagedResponse.from(searchResults));
+    }
+
+    @GetMapping("/{targetId}/following")
+    public ResponseEntity<?> getFollowingListByUserId(@AuthenticationPrincipal User currentUser,
+            @PathVariable("targetId") String targetId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) throws Exception {
+        Pageable pageable = PageRequest.of(page, size);
+        Slice<AnotherUserResponse> followingList = followService.getFollowingList(currentUser.getId(), targetId,
+                pageable);
+        return ResponseEntity.ok(PagedResponse.from(followingList));
+    }
+
+    @GetMapping("/{targetId}/followers")
+    public ResponseEntity<?> getFollowerListByUserId(@AuthenticationPrincipal User currentUser,
+            @PathVariable("targetId") String targetId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) throws Exception {
+        Pageable pageable = PageRequest.of(page, size);
+        Slice<AnotherUserResponse> followingList = followService.getFollowerList(currentUser.getId(), targetId,
+                pageable);
+        return ResponseEntity.ok(PagedResponse.from(followingList));
     }
 }

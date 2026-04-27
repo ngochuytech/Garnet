@@ -75,7 +75,11 @@ public class UserPostController {
             throws Exception {
         Post post = postService.getActivePostById(postId);
         String userReaction = postService.getUserReaction(post, user);
-        return ResponseEntity.ok().body(ApiResponse.ok(PostResponse.fromPost(post, userReaction)));
+        List<String> tags = postService.getTagsForPost(postId);
+        List<String> sharedTags = post.getSharedPost() != null 
+                ? postService.getTagsForPost(post.getSharedPost().getId()) 
+                : null;
+        return ResponseEntity.ok().body(ApiResponse.ok(PostResponse.fromPost(post, userReaction, tags, sharedTags)));
     }
 
     @GetMapping("")
@@ -89,6 +93,20 @@ public class UserPostController {
         Pageable pageable = PageRequest.of(page, size, sort);
         return ResponseEntity.ok()
                 .body(ApiResponse.ok(PagedResponse.from(postService.getPostsForHomeResponses(pageable, user))));
+    }
+
+    @GetMapping("/topic/{topicName}")
+    public ResponseEntity<?> getPostByTopicName(@AuthenticationPrincipal User user, @PathVariable String topicName,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir) throws Exception {
+        Sort sort = sortDir.equalsIgnoreCase("desc")
+                ? Sort.by(sortBy).descending()
+                : Sort.by(sortBy).ascending();
+        Pageable pageable = PageRequest.of(page, size, sort);
+        return ResponseEntity.ok()
+                .body(ApiResponse.ok(PagedResponse.from(postService.getPostsByTopicName(user, topicName, pageable))));
     }
 
     @PostMapping("")

@@ -26,6 +26,7 @@ public class PostResponse {
     private Integer commentCount;
     private Integer shareCount;
     private String userReaction;
+    private List<String> tags;
     private SharedPostResponse sharedPost;
     private List<String> images;
     private LocalDateTime createdAt;
@@ -53,16 +54,25 @@ public class PostResponse {
         private String id;
         private AuthorResponse author;
         private String content;
+        private List<String> tags;
         private List<String> images;
         private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
     }
 
     public static PostResponse fromPost(Post post) {
-        return fromPost(post, null);
+        return fromPost(post, null, null, null);
     }
 
-    public static PostResponse fromPost(Post post, String userReaction){
+    public static PostResponse fromPost(Post post, String userReaction) {
+        return fromPost(post, userReaction, null, null);
+    }
+
+    public static PostResponse fromPost(Post post, String userReaction, List<String> tags) {
+        return fromPost(post, userReaction, tags, null);
+    }
+
+    public static PostResponse fromPost(Post post, String userReaction, List<String> tags, List<String> sharedTags){
         return PostResponse.builder()
             .id(post.getId())
             .author(PostResponse.AuthorResponse.builder()
@@ -77,10 +87,12 @@ public class PostResponse {
             .commentCount(post.getCommentCount())
             .shareCount(post.getSharedCount())
             .userReaction(userReaction)
+            .tags(tags)
             .images(post.getImages())
             .sharedPost(post.getSharedPost() != null ? SharedPostResponse.builder()
                 .id(post.getSharedPost().getId())
                 .content(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? post.getSharedPost().getContent() : "Nội dung này không còn khả dụng hoặc đã bị tác giả gỡ bỏ.")
+                .tags(sharedTags)
                 .images(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? post.getSharedPost().getImages() : List.of())
                 .author(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? PostResponse.AuthorResponse.builder()
                     .id(post.getSharedPost().getUser().getId())

@@ -13,7 +13,6 @@ import com.example.campushub.dtos.users.UpdateInformationDTO;
 import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.UserRepository;
-import com.example.campushub.repositories.neo4j.MajorNeo4jRepository;
 import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
 import com.example.campushub.responses.TopicResponse;
@@ -27,7 +26,6 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final UserRepository userRepository;
     private final UserNeo4jRepository userNeo4jRepository;
-    private final MajorNeo4jRepository majorNeo4jRepository;
     private final TagNeo4jRepository tagNeo4jRepository;
     private final FileUploadService fileUploadService;
 

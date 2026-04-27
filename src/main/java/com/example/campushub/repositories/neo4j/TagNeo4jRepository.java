@@ -1,6 +1,7 @@
 package com.example.campushub.repositories.neo4j;
 
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.data.neo4j.repository.Neo4jRepository;
 import org.springframework.data.neo4j.repository.query.Query;
@@ -12,6 +13,7 @@ import com.example.campushub.responses.TopicResponse;
 
 @Repository
 public interface TagNeo4jRepository extends Neo4jRepository<TagNode, String> {
+    long countByNameIn(Set<String> names);
 
     @Query("MATCH (t:Tag) WHERE NOT ()-[:SPECIFIC_OF]->(t) " +
             "RETURN t.name AS topicName, " +

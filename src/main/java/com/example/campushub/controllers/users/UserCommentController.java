@@ -59,7 +59,7 @@ public class UserCommentController {
     }
 
     @PostMapping("/post/{postId}")
-    public ResponseEntity<?> getCommentFromPost(@AuthenticationPrincipal User user,
+    public ResponseEntity<?> createCommentFromPost(@AuthenticationPrincipal User user,
             @PathVariable String postId,
             @RequestBody @Valid CreateCommentDTO dto) throws Exception {
         commentService.createComment(user, postId, dto.getParentId(), dto.getContent());

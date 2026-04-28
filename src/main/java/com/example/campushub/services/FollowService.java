@@ -14,6 +14,10 @@ import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.SliceImpl;
 import org.springframework.stereotype.Service;
 
+import org.springframework.context.ApplicationEventPublisher;
+
+import com.example.campushub.enums.NotificationType;
+import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.UserRepository;
@@ -29,6 +33,7 @@ import lombok.RequiredArgsConstructor;
 public class FollowService {
     private final UserNeo4jRepository userNeo4jRepository;
     private final UserRepository userRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public void followUser(String currentUserId, String targetUserId) throws Exception {
         if (currentUserId.equals(targetUserId)) {
@@ -41,6 +46,19 @@ public class FollowService {
         boolean isSuccess = userNeo4jRepository.followUser(currentUserId, targetUserId);
         if (!isSuccess) {
             throw new InvalidParamException("Đã xảy ra lỗi khi theo dõi người dùng");
+        }
+
+        User currentUser = userRepository.findById(currentUserId).orElse(null);
+        if (currentUser != null) {
+            NotificationEvent event = NotificationEvent.builder()
+                    .recipientId(targetUserId)
+                    .actorId(currentUserId)
+                    .type(NotificationType.NEW_FOLLOWER)
+                    .targetType("USER")
+                    .targetId(targetUserId) // Group chung theo ID của user được nhận để gom nhóm
+                    .message(currentUser.getFullName() + " đã bắt đầu theo dõi bạn!")
+                    .build();
+            eventPublisher.publishEvent(event);
         }
 
     }

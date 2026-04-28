@@ -10,7 +10,6 @@ import org.springframework.stereotype.Repository;
 import com.example.campushub.dtos.record.PostTagsDTO;
 import com.example.campushub.models.neo4j.PostNode;
 
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.neo4j.repository.Neo4jRepository;
 
 @Repository

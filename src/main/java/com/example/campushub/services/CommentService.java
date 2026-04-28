@@ -7,8 +7,11 @@ import java.util.Map;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
 
+import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReactionType;
+import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.CommentReaction;
@@ -28,6 +31,7 @@ public class CommentService {
     private final CommentReactionRepository commentReactionRepository;
     private final PostRepository postRepository;
     private final PostService postService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public List<Comment> getCommentsByPostId(String postId, String lastCommentId, int limit) throws Exception {
         List<Comment> comments;
@@ -79,15 +83,46 @@ public class CommentService {
                 .user(user)
                 .content(content)
                 .build();
+        
+        String recipientId = null;
+        NotificationType type = null;
+        String message = null;
+        String targetType = null;
+        String targetId = null;
+
         if (parentId != null) {
             Comment parentComment = commentRepository.findById(parentId)
                     .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận mà bạn muốn phản hồi"));
             commentRepository.incrementReplyCount(parentId);
             
             comment.setParentComment(parentComment);
+            
+            recipientId = parentComment.getUser().getId();
+            type = NotificationType.REPLY_COMMENT;
+            message = user.getFullName() + " đã trả lời bình luận của bạn!";
+            targetType = "COMMENT";
+            targetId = parentComment.getId();
+        } else {
+            recipientId = post.getUser().getId();
+            type = NotificationType.COMMENT_POST;
+            message = user.getFullName() + " đã bình luận về bài viết của bạn!";
+            targetType = "POST";
+            targetId = post.getId();
         }
         postRepository.incrementCommentCount(postId);
         commentRepository.save(comment);
+
+        if (recipientId != null && !user.getId().equals(recipientId)) {
+            NotificationEvent event = NotificationEvent.builder()
+                    .recipientId(recipientId)
+                    .actorId(user.getId())
+                    .type(type)
+                    .targetType(targetType)
+                    .targetId(targetId)
+                    .message(message)
+                    .build();
+            eventPublisher.publishEvent(event);
+        }
     }
 
     @Transactional("transactionManager")
@@ -95,6 +130,8 @@ public class CommentService {
         Comment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận"));
         CommentReaction commentReaction = commentReactionRepository.findByCommentAndUser(comment, user);
+
+        boolean isNewLike = false;
 
         if (commentReaction == null) {
             commentReaction = CommentReaction.builder()
@@ -106,16 +143,30 @@ public class CommentService {
             comment.setLiked(comment.getLiked() + 1);
             commentRepository.save(comment);
             commentReactionRepository.save(commentReaction);
+            isNewLike = true;
         } else if (commentReaction.getType() == ReactionType.DISLIKE) {
             comment.setDisliked(comment.getDisliked() - 1);
             comment.setLiked(comment.getLiked() + 1);
             commentRepository.save(comment);
             commentReaction.setType(ReactionType.LIKE);
             commentReactionRepository.save(commentReaction);
+            isNewLike = true;
         } else {
             comment.setLiked(comment.getLiked() - 1);
             commentRepository.save(comment);
             commentReactionRepository.delete(commentReaction);
+        }
+
+        if (isNewLike && !user.getId().equals(comment.getUser().getId())) {
+            NotificationEvent event = NotificationEvent.builder()
+                    .recipientId(comment.getUser().getId())
+                    .actorId(user.getId())
+                    .type(NotificationType.LIKE_COMMENT)
+                    .targetType("COMMENT")
+                    .targetId(comment.getId())
+                    .message(user.getFullName() + " đã thích bình luận của bạn!")
+                    .build();
+            eventPublisher.publishEvent(event);
         }
     }
 

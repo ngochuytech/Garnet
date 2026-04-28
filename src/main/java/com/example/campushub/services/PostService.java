@@ -8,8 +8,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.SliceImpl;
@@ -22,7 +22,9 @@ import com.example.campushub.dtos.users.CreatePostDTO;
 import com.example.campushub.dtos.users.CreateSharePostDTO;
 import com.example.campushub.dtos.users.UpdatePostDTO;
 import com.example.campushub.enums.ContentStatus;
+import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReactionType;
+import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.ForbiddenAccessException;
 import com.example.campushub.exceptions.InvalidContentStateException;
@@ -31,7 +33,6 @@ import com.example.campushub.models.jpa.PostEditHistory;
 import com.example.campushub.models.jpa.PostReaction;
 import com.example.campushub.models.jpa.PostReactionId;
 import com.example.campushub.models.jpa.User;
-import com.example.campushub.models.neo4j.PostNode;
 import com.example.campushub.repositories.jpa.PostEditHistoryRepository;
 import com.example.campushub.repositories.jpa.PostReactionRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
@@ -52,6 +53,7 @@ public class PostService {
     private final PostReactionRepository postReactionRepository;
     private final PostEditHistoryRepository postEditHistoryRepository;
     private final FileUploadService fileUploadService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void createPost(User user, CreatePostDTO dto, List<MultipartFile> images) throws Exception {
@@ -83,6 +85,8 @@ public class PostService {
         Post post = getPostById(postId);
         PostReaction reaction = postReactionRepository.findByPostAndUser(post, user);
 
+        boolean isNewLike = false;
+
         if (reaction == null) {
             reaction = PostReaction.builder()
                     .id(new PostReactionId(post.getId(), user.getId()))
@@ -93,16 +97,30 @@ public class PostService {
             post.setLiked(post.getLiked() + 1);
             postRepository.save(post);
             postReactionRepository.save(reaction);
+            isNewLike = true;
         } else if (reaction.getType() == ReactionType.DISLIKE) {
             post.setLiked(post.getLiked() + 1);
             post.setDisliked(post.getDisliked() - 1);
             postRepository.save(post);
             reaction.setType(ReactionType.LIKE);
             postReactionRepository.save(reaction);
+            isNewLike = true;
         } else {
             post.setLiked(post.getLiked() - 1);
             postRepository.save(post);
             postReactionRepository.delete(reaction);
+        }
+
+        if(!user.getId().equals(post.getUser().getId()) && isNewLike) {
+            NotificationEvent event = NotificationEvent.builder()
+                    .recipientId(post.getUser().getId())
+                    .actorId(user.getId())
+                    .type(NotificationType.LIKE_POST)
+                    .targetType("POST")
+                    .targetId(post.getId())
+                    .message(user.getFullName() + " đã thích bài viết của bạn!")
+                    .build();
+            eventPublisher.publishEvent(event);
         }
     }
 
@@ -164,6 +182,18 @@ public class PostService {
             postNeo4jRepository.createSharedPost(user.getId(), sharedPost.getId(), originalPost.getId(), dto.getTags());
         } catch (Exception e) {
             throw new RuntimeException("Lỗi khi tạo bài viết trên Neo4j: " + e.getMessage());
+        }
+
+        if (!user.getId().equals(originalPost.getUser().getId())) {
+            NotificationEvent event = NotificationEvent.builder()
+                    .recipientId(originalPost.getUser().getId())
+                    .actorId(user.getId())
+                    .type(NotificationType.SHARE_POST)
+                    .targetType("POST")
+                    .targetId(originalPost.getId())
+                    .message(user.getFullName() + " đã chia sẻ bài viết của bạn!")
+                    .build();
+            eventPublisher.publishEvent(event);
         }
     }
 

@@ -114,6 +114,7 @@ public class PostService {
         if(!user.getId().equals(post.getUser().getId()) && isNewLike) {
             NotificationEvent event = NotificationEvent.builder()
                     .recipientId(post.getUser().getId())
+                    .recipientName(post.getUser().getUsername())
                     .actorId(user.getId())
                     .type(NotificationType.LIKE_POST)
                     .targetType("POST")

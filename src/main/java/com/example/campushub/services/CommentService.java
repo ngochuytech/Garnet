@@ -85,6 +85,7 @@ public class CommentService {
                 .build();
         
         String recipientId = null;
+        String recipientName = null;
         NotificationType type = null;
         String message = null;
         String targetType = null;
@@ -98,12 +99,14 @@ public class CommentService {
             comment.setParentComment(parentComment);
             
             recipientId = parentComment.getUser().getId();
+            recipientName = parentComment.getUser().getUsername();
             type = NotificationType.REPLY_COMMENT;
             message = user.getFullName() + " đã trả lời bình luận của bạn!";
             targetType = "COMMENT";
             targetId = parentComment.getId();
         } else {
             recipientId = post.getUser().getId();
+            recipientName = post.getUser().getUsername();
             type = NotificationType.COMMENT_POST;
             message = user.getFullName() + " đã bình luận về bài viết của bạn!";
             targetType = "POST";
@@ -115,6 +118,7 @@ public class CommentService {
         if (recipientId != null && !user.getId().equals(recipientId)) {
             NotificationEvent event = NotificationEvent.builder()
                     .recipientId(recipientId)
+                    .recipientName(recipientName)
                     .actorId(user.getId())
                     .type(type)
                     .targetType(targetType)
@@ -160,6 +164,7 @@ public class CommentService {
         if (isNewLike && !user.getId().equals(comment.getUser().getId())) {
             NotificationEvent event = NotificationEvent.builder()
                     .recipientId(comment.getUser().getId())
+                    .recipientName(comment.getUser().getUsername())
                     .actorId(user.getId())
                     .type(NotificationType.LIKE_COMMENT)
                     .targetType("COMMENT")

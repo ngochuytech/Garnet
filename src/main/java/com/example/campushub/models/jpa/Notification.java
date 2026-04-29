@@ -8,6 +8,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -36,7 +37,7 @@ public class Notification extends BaseEntity {
     private String recipientId;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "actor_id")
+    @JoinColumn(name = "actor_id", foreignKey = @ForeignKey(name = "FK_notifications_actor"))
     private User actor;
 
     @Enumerated(EnumType.STRING)

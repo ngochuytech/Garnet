@@ -12,6 +12,7 @@ import lombok.Getter;
 public class NotificationEvent {
     private String actorId;
     private String recipientId;
+    private String recipientName;
     private NotificationType type;
     private String targetType;
     private String targetId;

@@ -2,9 +2,12 @@ package com.example.campushub.events;
 
 import java.util.Optional;
 
+import org.springframework.boot.webmvc.autoconfigure.WebMvcProperties.Apiversion.Use;
 import org.springframework.context.event.EventListener;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.models.jpa.Notification;
@@ -13,6 +16,7 @@ import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.NotificationRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
+import com.example.campushub.responses.NotificationResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -23,12 +27,15 @@ public class NotificationListener {
     private final UserRepository userRepository;
     private final PostRepository postRepository;
     private final CommentRepository commentRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @Async
     @EventListener
+    @Transactional("transactionManager")
     public void handleNotificationEvent(NotificationEvent event) {
         try {
-            User actor = userRepository.getReferenceById(event.getActorId());
+            User actor = userRepository.findById(event.getActorId()).orElse(null);
+            if (actor == null) return;
 
             // Các loại thông báo có thể gom nhóm được (liên quan đến 1 target cụ thể và có
             // thể lặp lại nhiều lần bởi nhiều User)
@@ -56,27 +63,27 @@ public class NotificationListener {
                     switch (event.getType()) {
                         case LIKE_POST:
                             totalCount = postRepository.findById(event.getTargetId())
-                                .map(p -> (long) p.getLiked()).orElse(1L);
+                                    .map(p -> (long) p.getLiked()).orElse(1L);
                             baseMessage = " đã thích bài viết của bạn";
                             break;
                         case LIKE_COMMENT:
                             totalCount = commentRepository.findById(event.getTargetId())
-                                .map(c -> (long) c.getLiked()).orElse(1L);
+                                    .map(c -> (long) c.getLiked()).orElse(1L);
                             baseMessage = " đã thích bình luận của bạn";
                             break;
                         case COMMENT_POST:
                             totalCount = postRepository.findById(event.getTargetId())
-                                .map(p -> (long) p.getCommentCount()).orElse(1L);
+                                    .map(p -> (long) p.getCommentCount()).orElse(1L);
                             baseMessage = " đã bình luận về bài viết của bạn";
                             break;
                         case REPLY_COMMENT:
                             totalCount = commentRepository.findById(event.getTargetId())
-                                .map(c -> (long) c.getReplyCount()).orElse(1L);
+                                    .map(c -> (long) c.getReplyCount()).orElse(1L);
                             baseMessage = " đã trả lời bình luận của bạn";
                             break;
                         case SHARE_POST:
                             totalCount = postRepository.findById(event.getTargetId())
-                                .map(p -> (long) p.getSharedCount()).orElse(1L);
+                                    .map(p -> (long) p.getSharedCount()).orElse(1L);
                             baseMessage = " đã chia sẻ bài viết của bạn";
                             break;
                         case NEW_FOLLOWER:
@@ -98,12 +105,17 @@ public class NotificationListener {
                     notif.setRead(false);
 
                     notificationRepository.save(notif);
+
+                    // Đẩy thông báo mới cập nhật về Frontend qua WebSocket dưới dạng DTO
+                    messagingTemplate.convertAndSendToUser(
+                        event.getRecipientName(),
+                        "/queue/notifications",
+                        NotificationResponse.fromEntity(notif)
+                    );
+
                     return;
                 }
             }
-
-            // Nếu không thuộc loại gom nhóm hoặc chưa tồn tại thông báo chưa đọc nào cho
-            // target này
             Notification notif = Notification.builder()
                     .recipientId(event.getRecipientId())
                     .actor(actor)
@@ -114,6 +126,13 @@ public class NotificationListener {
                     .build();
 
             notificationRepository.save(notif);
+
+            // Đẩy thông báo mới cập nhật về Frontend qua WebSocket dưới dạng DTO
+            messagingTemplate.convertAndSendToUser(
+                event.getRecipientName(),
+                "/queue/notifications",
+                NotificationResponse.fromEntity(notif)
+            );
 
         } catch (Exception e) {
             System.err.println("Lỗi lưu thông báo, nhưng Like vẫn an toàn!: " + e.getMessage());

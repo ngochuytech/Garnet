@@ -39,6 +39,10 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         @Param("originalPostId") String originalPostId,
                         @Param("tagNames") Set<String> tagNames);
 
+        @Query("MATCH (p:Post {id: $postId}) " +
+                        "SET p.status = $status")
+        void updatePostStatus(String postId, String status);
+
         @Query("MATCH (t:Tag {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'})  " +
                         "RETURN p.id " +
                         "SKIP $offset " +

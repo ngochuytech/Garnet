@@ -1,5 +1,6 @@
 package com.example.campushub.events;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import org.springframework.boot.webmvc.autoconfigure.WebMvcProperties.Apiversion.Use;
@@ -35,7 +36,8 @@ public class NotificationListener {
     public void handleNotificationEvent(NotificationEvent event) {
         try {
             User actor = userRepository.findById(event.getActorId()).orElse(null);
-            if (actor == null) return;
+            if (actor == null)
+                return;
 
             // Các loại thông báo có thể gom nhóm được (liên quan đến 1 target cụ thể và có
             // thể lặp lại nhiều lần bởi nhiều User)
@@ -43,8 +45,7 @@ public class NotificationListener {
                     event.getType() == NotificationType.LIKE_COMMENT ||
                     event.getType() == NotificationType.COMMENT_POST ||
                     event.getType() == NotificationType.REPLY_COMMENT ||
-                    event.getType() == NotificationType.SHARE_POST ||
-                    event.getType() == NotificationType.NEW_FOLLOWER) {
+                    event.getType() == NotificationType.SHARE_POST) {
 
                 Optional<Notification> existingNotif = notificationRepository
                         .findFirstByRecipientIdAndTargetIdAndTypeOrderByCreatedAtDesc(
@@ -86,9 +87,6 @@ public class NotificationListener {
                                     .map(p -> (long) p.getSharedCount()).orElse(1L);
                             baseMessage = " đã chia sẻ bài viết của bạn";
                             break;
-                        case NEW_FOLLOWER:
-                            baseMessage = " đã bắt đầu theo dõi bạn";
-                            break;
                         default:
                             baseMessage = " đã tương tác với bạn";
                             totalCount = 1L;
@@ -108,31 +106,60 @@ public class NotificationListener {
 
                     // Đẩy thông báo mới cập nhật về Frontend qua WebSocket dưới dạng DTO
                     messagingTemplate.convertAndSendToUser(
-                        event.getRecipientName(),
-                        "/queue/notifications",
-                        NotificationResponse.fromEntity(notif)
-                    );
+                            event.getRecipientName(),
+                            "/queue/notifications",
+                            NotificationResponse.fromEntity(notif));
 
                     return;
                 }
+            } else if (event.getType() == NotificationType.NEW_FOLLOWER) {
+                // Với thông báo theo dõi, nếu đã tồn tại thì không tạo thêm, tránh spam
+                Optional<Notification> existingFollowNotif = notificationRepository
+                        .findFirstByRecipientIdAndActorIdAndType(
+                                event.getRecipientId(), event.getActorId(), event.getType());
+
+                Notification notif;
+                if (existingFollowNotif.isPresent()) {
+                    notif = existingFollowNotif.get();
+                    notif.setRead(false);
+                    notif.setCreatedAt(LocalDateTime.now());
+                } else {
+                    // Chưa có thì tạo mới
+                    notif = Notification.builder()
+                            .recipientId(event.getRecipientId())
+                            .actor(actor)
+                            .type(event.getType())
+                            .targetType(event.getTargetType())
+                            .targetId(event.getTargetId())
+                            .message(event.getMessage())
+                            .build();
+                }
+                notificationRepository.save(notif);
+                // Đẩy thông báo mới cập nhật về Frontend qua WebSocket dưới dạng DTO
+                messagingTemplate.convertAndSendToUser(
+                        event.getRecipientName(),
+                        "/queue/notifications",
+                        NotificationResponse.fromEntity(notif));
+
+                return;
+            } else {
+                Notification notif = Notification.builder()
+                        .recipientId(event.getRecipientId())
+                        .actor(actor)
+                        .type(event.getType())
+                        .targetType(event.getTargetType())
+                        .targetId(event.getTargetId())
+                        .message(event.getMessage())
+                        .build();
+
+                notificationRepository.save(notif);
+
+                // Đẩy thông báo mới cập nhật về Frontend qua WebSocket dưới dạng DTO
+                messagingTemplate.convertAndSendToUser(
+                        event.getRecipientName(),
+                        "/queue/notifications",
+                        NotificationResponse.fromEntity(notif));
             }
-            Notification notif = Notification.builder()
-                    .recipientId(event.getRecipientId())
-                    .actor(actor)
-                    .type(event.getType())
-                    .targetType(event.getTargetType())
-                    .targetId(event.getTargetId())
-                    .message(event.getMessage())
-                    .build();
-
-            notificationRepository.save(notif);
-
-            // Đẩy thông báo mới cập nhật về Frontend qua WebSocket dưới dạng DTO
-            messagingTemplate.convertAndSendToUser(
-                event.getRecipientName(),
-                "/queue/notifications",
-                NotificationResponse.fromEntity(notif)
-            );
 
         } catch (Exception e) {
             System.err.println("Lỗi lưu thông báo, nhưng Like vẫn an toàn!: " + e.getMessage());

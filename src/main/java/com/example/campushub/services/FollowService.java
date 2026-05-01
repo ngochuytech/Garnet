@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -13,13 +14,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.SliceImpl;
 import org.springframework.stereotype.Service;
-
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.context.ApplicationEventPublisher;
 
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.events.NotificationEvent;
+import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.models.jpa.Notification;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.NotificationRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
 import com.example.campushub.responses.FollowResponse;
@@ -33,15 +37,16 @@ import lombok.RequiredArgsConstructor;
 public class FollowService {
     private final UserNeo4jRepository userNeo4jRepository;
     private final UserRepository userRepository;
+    private final NotificationRepository notificationRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     public void followUser(String currentUserId, String targetUserId) throws Exception {
         if (currentUserId.equals(targetUserId)) {
             throw new InvalidParamException("Không thể tự theo dõi chính mình");
         }
-        if (!userRepository.existsById(targetUserId)) {
-            throw new InvalidParamException("Người dùng bạn theo dõi không tồn tại");
-        }
+
+        User targetUser = userRepository.findById(targetUserId)
+            .orElseThrow(() -> new DataNotFoundException("Người dùng bạn theo dõi không tồn tại"));
 
         boolean isSuccess = userNeo4jRepository.followUser(currentUserId, targetUserId);
         if (!isSuccess) {
@@ -52,10 +57,11 @@ public class FollowService {
         if (currentUser != null) {
             NotificationEvent event = NotificationEvent.builder()
                     .recipientId(targetUserId)
+                    .recipientName(targetUser.getUsername())
                     .actorId(currentUserId)
                     .type(NotificationType.NEW_FOLLOWER)
                     .targetType("USER")
-                    .targetId(targetUserId) // Group chung theo ID của user được nhận để gom nhóm
+                    .targetId(targetUserId)
                     .message(currentUser.getFullName() + " đã bắt đầu theo dõi bạn!")
                     .build();
             eventPublisher.publishEvent(event);
@@ -63,6 +69,7 @@ public class FollowService {
 
     }
 
+    @Transactional("transactionManager")
     public void unfollowUser(String currentUserId, String targetUserId) throws Exception {
         if (currentUserId.equals(targetUserId)) {
             throw new InvalidParamException("Không thể bỏ theo dõi chính mình");
@@ -71,6 +78,11 @@ public class FollowService {
             throw new InvalidParamException("Người dùng bạn bỏ theo dõi không tồn tại");
         }
         userNeo4jRepository.unfollowUser(currentUserId, targetUserId);
+
+        Optional<Notification> oldOptional = notificationRepository.findFirstByRecipientIdAndActorIdAndType(targetUserId, currentUserId, NotificationType.NEW_FOLLOWER);
+        if(oldOptional.isPresent()) {
+            notificationRepository.delete(oldOptional.get());
+        }
     }
 
     public List<User> getWhoToFollow(String userId) {

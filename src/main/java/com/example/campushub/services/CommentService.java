@@ -4,7 +4,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.context.ApplicationEventPublisher;
@@ -21,6 +25,8 @@ import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.CommentReactionRepository;
 import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
+import com.example.campushub.repositories.jpa.UserRepository;
+import com.example.campushub.responses.admin.AdminCommentResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -31,24 +37,32 @@ public class CommentService {
     private final CommentReactionRepository commentReactionRepository;
     private final PostRepository postRepository;
     private final PostService postService;
+    private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
 
-    public List<Comment> getCommentsByPostId(String postId, String lastCommentId, int limit) throws Exception {
+    public Slice<Comment> getCommentsByPostId(String postId, String lastCommentId, int limit) throws Exception {
         List<Comment> comments;
+        int fetchSize = limit + 1;
+        Pageable fetchPageable = PageRequest.of(0, fetchSize);
 
         if (lastCommentId == null || lastCommentId.isEmpty()) {
             // Lần load đầu tiên (lấy các comment mới nhất)
             comments = commentRepository.findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(
-                    postId, PageRequest.of(0, limit));
+                    postId, fetchPageable);
         } else {
             // Các lần load tiếp theo
             Comment lastComment = commentRepository.findById(lastCommentId)
                     .orElseThrow(() -> new DataNotFoundException("Khong tim thay comment cuoi cung"));
             comments = commentRepository.findByPostIdAndParentCommentIsNullAndCreatedAtLessThanOrderByCreatedAtDesc(
-                    postId, lastComment.getCreatedAt(), PageRequest.of(0, limit));
+                    postId, lastComment.getCreatedAt(), fetchPageable);
         }
 
-        return comments;
+        boolean hasNext = comments.size() > limit;
+        if (hasNext) {
+            comments = comments.subList(0, limit);
+        }
+
+        return new SliceImpl<>(comments, PageRequest.of(0, limit), hasNext);
     }
 
     public List<Comment> getCommentReplies(String commentId, String lastCommentId, Integer limit) throws Exception{
@@ -221,5 +235,13 @@ public class CommentService {
             }
         }
         return userReactionsMap;
+    }
+
+    public Page<AdminCommentResponse> getCommentsByUserId(String userId, Pageable pageable) throws Exception {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+
+        return commentRepository.findByUser(user, pageable)
+                .map(AdminCommentResponse::fromEntity);
     }
 }

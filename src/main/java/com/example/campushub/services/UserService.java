@@ -4,18 +4,25 @@ import java.security.InvalidParameterException;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.dtos.users.UpdateInformationDTO;
+import com.example.campushub.enums.UserRole;
+import com.example.campushub.enums.UserStatus;
+import com.example.campushub.exceptions.DataNotFoundException;
+import com.example.campushub.exceptions.ForbiddenAccessException;
 import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
 import com.example.campushub.responses.TopicResponse;
+import com.example.campushub.responses.admin.AdminUserResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,6 +35,17 @@ public class UserService {
     private final UserNeo4jRepository userNeo4jRepository;
     private final TagNeo4jRepository tagNeo4jRepository;
     private final FileUploadService fileUploadService;
+
+    private UserStatus parseAndValidateUserStatus(String status){
+        if(status==null || status.isBlank())
+            return null;
+        try {
+            UserStatus userStatus = UserStatus.valueOf(status);
+            return userStatus;
+        } catch (Exception e) {
+            throw new InvalidParamException("Tham số user status không hợp lệ: " + status);
+        }
+    }
 
     public User getUserFromEmail(String email) throws Exception {
         return userRepository.findByEmail(email)
@@ -139,4 +157,39 @@ public class UserService {
     public List<TopicResponse> getUserTopics(User user) {
         return tagNeo4jRepository.getTopicUserCounts(user.getId());
     }
+
+    // --- ADMIN ---
+    public Page<AdminUserResponse> getUsers(String query, String status, Pageable pageable) throws Exception{
+        UserStatus userStatus = parseAndValidateUserStatus(status);
+        if(query!=null && query.trim().isEmpty() )
+            query = null;
+        return userRepository.findByQueryAndOptionalStatus(query, userStatus, pageable)
+            .map(AdminUserResponse::fromEntity);
+    }
+
+    public void banUser(User currentUser, String userId) throws Exception{
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+
+        if (user.getRole() == null || user.getRole().equals(UserRole.ADMIN)) {
+            throw new ForbiddenAccessException("Không thể ban tài khoản admin");
+        }
+
+        user.setStatus(UserStatus.BANNED);
+        userRepository.save(user);
+    }
+
+    public void unbanUser(User currentUser, String userId) throws Exception{
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+
+        if (user.getRole() == null || user.getRole().equals(UserRole.ADMIN)) {
+            throw new ForbiddenAccessException("Không thể thay đổi trạng thái tài khoản admin");
+        }
+
+        user.setStatus(UserStatus.ACTIVE);
+        userRepository.save(user);
+    }
+
+
 }

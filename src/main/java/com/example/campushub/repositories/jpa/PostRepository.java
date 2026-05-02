@@ -18,6 +18,7 @@ import com.example.campushub.models.jpa.User;
 @Repository
 public interface PostRepository extends JpaRepository<Post, String> {
     List<Post> findByUser(User user);
+    Page<Post> findByUser(User user, Pageable pageable);
     List<Post> findByUserAndStatus(User user, ContentStatus status);
     Page<Post> findByUserAndStatus(User user, ContentStatus status, Pageable pageable);
     Page<Post> findByStatus(ContentStatus status, Pageable pageable);
@@ -28,4 +29,13 @@ public interface PostRepository extends JpaRepository<Post, String> {
     @Modifying
     @Query("UPDATE Post p SET p.commentCount = p.commentCount + 1 WHERE p.id = :postId")
     void incrementCommentCount(@Param("postId") String postId);
+
+    @Query("SELECT p FROM Post p " +
+            "WHERE (:query IS NULL " +
+            "OR p.id LIKE CONCAT('%', :query, '%') " +
+            "OR LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%')) " +
+            "OR LOWER(p.user.fullName) LIKE LOWER(CONCAT('%', :query, '%')) " +
+            "OR LOWER(p.user.email) LIKE LOWER(CONCAT('%', :query, '%'))) " +
+            "AND (:status IS NULL OR p.status = :status)")
+    Page<Post> searchPosts(@Param("query") String query, @Param("status") ContentStatus status, Pageable pageable);
 }

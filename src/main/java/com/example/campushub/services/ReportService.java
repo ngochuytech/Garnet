@@ -16,8 +16,10 @@ import com.example.campushub.models.jpa.Report;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.ReportRepository;
+import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
 import com.example.campushub.responses.ReportResponse;
+import com.example.campushub.responses.admin.AdminReportResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -26,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 public class ReportService {
     private final ReportRepository reportRepository;
     private final PostRepository postRepository;
+    private final UserRepository userRepository;
     private final PostNeo4jRepository postNeo4jRepository;
 
     private ReportType parseAndValidateTargetType(String targetType) {
@@ -130,6 +133,14 @@ public class ReportService {
 
     public Page<ReportResponse> searchReports(String query, Pageable pageable) throws Exception {
         return reportRepository.searchReports(query, pageable).map(ReportResponse::fromEntity);
+    }
+
+    public Page<AdminReportResponse> getReportsByUserId(String userId, Pageable pageable) throws Exception {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+
+        return reportRepository.findByReportedUser(user, pageable)
+                .map(AdminReportResponse::fromEntity);
     }
 
 }

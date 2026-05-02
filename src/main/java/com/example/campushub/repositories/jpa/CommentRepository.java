@@ -3,6 +3,7 @@ package com.example.campushub.repositories.jpa;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -10,8 +11,10 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.example.campushub.models.jpa.Comment;
+import com.example.campushub.models.jpa.User;
 
 public interface CommentRepository extends JpaRepository<Comment, String>{
+    Page<Comment> findByUser(User user, Pageable pageable);
     
     // Load n comment đầu tiên của một bài viết (mới nhất) và chỉ lấy comment gốc (không lấy reply)
     List<Comment> findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(String postId, Pageable pageable);

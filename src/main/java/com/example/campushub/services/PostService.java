@@ -40,6 +40,7 @@ import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
 import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
 import com.example.campushub.responses.PostResponse;
+import com.example.campushub.responses.admin.AdminPostResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -54,6 +55,17 @@ public class PostService {
     private final PostEditHistoryRepository postEditHistoryRepository;
     private final FileUploadService fileUploadService;
     private final ApplicationEventPublisher eventPublisher;
+
+    private ContentStatus parseAndValidateContentStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return ContentStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new InvalidContentStateException("Tham số trạng thái bài viết không hợp lệ: " + status);
+        }
+    }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void createPost(User user, CreatePostDTO dto, List<MultipartFile> images) throws Exception {
@@ -357,5 +369,25 @@ public class PostService {
                 })
                 .collect(Collectors.toList());
         return new SliceImpl<>(responses, pageable, hasNext);
+    }
+
+    // --- ADMIN ---
+
+    public Page<AdminPostResponse> getPostsByUserId(String userId, Pageable pageable) throws Exception {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+
+        Page<Post> posts = postRepository.findByUser(user, pageable);
+        Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
+        return posts.map(post -> AdminPostResponse.fromEntity(post, tagsMap));
+    }
+
+    public Page<AdminPostResponse> searchPosts(String query, String status, Pageable pageable) throws Exception {
+        if(query != null && query.trim().isEmpty()) {
+            query = null;
+        }
+        ContentStatus contentStatus = parseAndValidateContentStatus(status);
+        Page<Post> posts = postRepository.searchPosts(query, contentStatus, pageable);
+        return posts.map(post -> AdminPostResponse.fromEntity(post, null));
     }
 }

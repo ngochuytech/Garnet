@@ -1,10 +1,14 @@
 package com.example.campushub.services;
 
+import java.util.List;
+import java.util.Optional;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.campushub.dtos.admin.AdminReportDTO;
 import com.example.campushub.dtos.users.CreateReportPostDTO;
 import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.enums.ReportStatus;
@@ -102,27 +106,25 @@ public class ReportService {
                 .map(ReportResponse::fromEntity);
     }
 
+    @Transactional(value = "transactionManager")
     public void closeReport(User currentUser, String reportId) throws Exception {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
         report.setStatus(ReportStatus.CLOSED);
         report.setResolvedBy(currentUser);
-        reportRepository.save(report);
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void handleReportResolution(User currentUser, String reportId, String adminNote) throws Exception {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
-        report.setStatus(ReportStatus.RESOLVED);
-        report.setAdminNote(adminNote);
-        report.setResolvedBy(currentUser);
-        reportRepository.save(report);
+
+        String targetPostId = report.getTargetId();
+        reportRepository.updateExistingReportsStatus(targetPostId, ReportType.POST, ReportStatus.RESOLVED, currentUser, adminNote);
 
         Post post = postRepository.findById(report.getTargetId())
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết liên quan!"));
         post.setStatus(ContentStatus.REPORTED);
-        postRepository.save(post);
         try {
             postNeo4jRepository.updatePostStatus(post.getId(), ContentStatus.REPORTED.name());
         } catch (Exception e) {
@@ -141,6 +143,36 @@ public class ReportService {
 
         return reportRepository.findByReportedUser(user, pageable)
                 .map(AdminReportResponse::fromEntity);
+    }
+
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
+    public void reportPostByAdmin(User admin, String postId, AdminReportDTO dto) throws Exception {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết"));
+        
+        reportRepository.updateExistingReportsStatus(postId, ReportType.POST, ReportStatus.RESOLVED, admin, postId);
+        
+        Report adminReport = Report.builder()
+                .targetId(postId)
+                .targetType(ReportType.POST)
+                .reporter(admin)
+                .reportedUser(post.getUser())
+                .reportedContentSnapshot(post.getContent())
+                .resolvedBy(admin)
+                .adminNote(dto.getAdminNotes())
+                .reason(dto.getReason())
+                .status(ReportStatus.RESOLVED)
+                .build();
+        reportRepository.save(adminReport);
+        
+        post.setStatus(ContentStatus.REPORTED);
+
+        try {
+            postNeo4jRepository.updatePostStatus(postId, ContentStatus.REPORTED.name());
+        } catch (Exception e) {
+            throw new Exception("Gỡ bài viết thành công nhưng có lỗi khi cập nhật trạng thái trên Neo4j: "
+                    + e.getMessage());
+        }
     }
 
 }

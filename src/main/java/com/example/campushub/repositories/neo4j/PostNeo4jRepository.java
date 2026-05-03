@@ -3,14 +3,13 @@ package com.example.campushub.repositories.neo4j;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.data.neo4j.repository.Neo4jRepository;
 import org.springframework.data.neo4j.repository.query.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.example.campushub.dtos.record.PostTagsDTO;
 import com.example.campushub.models.neo4j.PostNode;
-
-import org.springframework.data.neo4j.repository.Neo4jRepository;
 
 @Repository
 public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
@@ -56,4 +55,10 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         "OPTIONAL MATCH (p)-[:HAS_TAG]->(t:Tag) " +
                         "RETURN p.id AS postId, collect(t.name) AS tagNames")
         List<PostTagsDTO> findTagsByPostIds(@Param("postIds") List<String> postIds);
+
+        @Query("MATCH (p:Post {status: 'ACTIVE'})-[:HAS_TAG]->(t:Tag) " +
+                        "WHERE NOT ()-[:SPECIFIC_OF]->(t) " +
+                        "RETURN t.name AS label, count(DISTINCT p) AS value " +
+                        "ORDER BY value DESC")
+        List<TopicDistributionProjection> findActivePostTopicDistribution();
 }

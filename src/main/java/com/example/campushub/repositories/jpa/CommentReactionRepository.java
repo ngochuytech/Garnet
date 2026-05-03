@@ -1,6 +1,9 @@
 package com.example.campushub.repositories.jpa;
 
+import java.time.LocalDateTime;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.example.campushub.models.jpa.Comment;
@@ -17,5 +20,9 @@ public interface CommentReactionRepository extends JpaRepository<CommentReaction
     List<CommentReaction> findByUserAndComment_Post_Id(User user, String postId);
 
     List<CommentReaction> findByUserAndCommentIn(User user, List<Comment> comments);
+
+    @Query("SELECT COUNT(cr) FROM CommentReaction cr " +
+            "WHERE cr.createdAt >= :start AND cr.createdAt < :end")
+    long countCommentReactionBetweenStartAndEnd(@Param("start") LocalDateTime start,@Param("end") LocalDateTime end);
 
 }

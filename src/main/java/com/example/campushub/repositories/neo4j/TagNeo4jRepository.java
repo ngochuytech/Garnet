@@ -8,6 +8,7 @@ import org.springframework.data.neo4j.repository.query.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import com.example.campushub.dtos.record.TopicDistributionDTO;
 import com.example.campushub.models.neo4j.TagNode;
 import com.example.campushub.responses.TopicResponse;
 
@@ -35,4 +36,10 @@ public interface TagNeo4jRepository extends Neo4jRepository<TagNode, String> {
 
     @Query("MATCH (t:Tag {name: $topicName}) SET t.imageUrl = $imageUrl")
     void updateTopicImage(@Param("topicName") String topicName, @Param("imageUrl") String imageUrl);
+
+        @Query("MATCH (t:Tag) WHERE NOT ()-[:SPECIFIC_OF]->(t) " +
+                        "OPTIONAL MATCH (t)<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'}) " +
+                        "RETURN t.name AS label, count(DISTINCT p) AS value " +
+                        "ORDER BY value DESC")
+        List<TopicDistributionDTO> findActiveTopicDistribution();
 }

@@ -1,5 +1,6 @@
 package com.example.campushub.repositories.jpa;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -26,4 +27,8 @@ public interface UserRepository extends JpaRepository<User, String> {
             "OR LOWER(u.phone) LIKE LOWER(CONCAT('%', :query, '%'))) " +
             "AND (:status IS NULL OR u.status = :status)")
     Page<User> findByQueryAndOptionalStatus(@Param("query") String query, @Param("status") UserStatus status, Pageable pageable);
+
+    @Query("SELECT COUNT(u) FROM User u " +
+            "WHERE u.createdAt >= :start AND u.createdAt < :end")
+    long countUserBetweenStartAndEnd(@Param("start") LocalDateTime start,@Param("end") LocalDateTime end);
 }

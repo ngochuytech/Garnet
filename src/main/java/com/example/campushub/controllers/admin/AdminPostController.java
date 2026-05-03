@@ -1,5 +1,7 @@
 package com.example.campushub.controllers.admin;
 
+import java.util.List;
+
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
@@ -8,10 +10,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.campushub.dtos.admin.AdminReportDTO;
 import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
@@ -20,7 +26,9 @@ import com.example.campushub.responses.admin.AdminCommentResponse;
 import com.example.campushub.responses.admin.AdminPostResponse;
 import com.example.campushub.services.CommentService;
 import com.example.campushub.services.PostService;
+import com.example.campushub.services.ReportService;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -29,6 +37,7 @@ import lombok.RequiredArgsConstructor;
 public class AdminPostController {
     private final PostService postService;
     private final CommentService commentService;
+    private final ReportService reportService;
 
     @GetMapping("")
     public ResponseEntity<?> getPosts(@AuthenticationPrincipal User currentUser,
@@ -48,7 +57,8 @@ public class AdminPostController {
     @GetMapping("/{postId}")
     public ResponseEntity<?> getPostDetail(@AuthenticationPrincipal User currentUser, @PathVariable String postId)
             throws Exception {
-        return ResponseEntity.ok(ApiResponse.ok(AdminPostResponse.fromEntity(postService.getPostById(postId), null)));
+        List<String> tags = postService.getTagsForPost(postId);
+        return ResponseEntity.ok(ApiResponse.ok(AdminPostResponse.fromEntity(postService.getPostById(postId), tags)));
     }
 
     @GetMapping("/{postId}/comments")
@@ -58,5 +68,20 @@ public class AdminPostController {
         Slice<Comment> comments = commentService.getCommentsByPostId(postId, lastCommentId, limit);
         Slice<AdminCommentResponse> response = comments.map(AdminCommentResponse::fromEntity);
         return ResponseEntity.ok(PagedResponse.from(response));
+    }
+
+    @PostMapping("/{postId}/report")
+    public ResponseEntity<?> reportPost(@AuthenticationPrincipal User currentUser,
+            @PathVariable String postId,
+            @RequestBody @Valid AdminReportDTO dto) throws Exception {
+        reportService.reportPostByAdmin(currentUser, postId, dto);
+        return ResponseEntity.ok(ApiResponse.ok("Gỡ bài viết thành công"));
+    }
+
+    @PutMapping("/{postId}/active")
+    public ResponseEntity<?> activePost(@AuthenticationPrincipal User currentUser, @PathVariable String postId)
+            throws Exception {
+        postService.adminActivePost(postId);
+        return ResponseEntity.ok(ApiResponse.ok("Đã kích hoạt bài viết!"));
     }
 }

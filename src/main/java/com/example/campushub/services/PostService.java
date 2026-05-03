@@ -379,7 +379,13 @@ public class PostService {
 
         Page<Post> posts = postRepository.findByUser(user, pageable);
         Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
-        return posts.map(post -> AdminPostResponse.fromEntity(post, tagsMap));
+        return posts.map(post -> {
+            List<String> tags = tagsMap.getOrDefault(post.getId(), Collections.emptyList());
+            List<String> sharedTags = post.getSharedPost() != null
+                    ? tagsMap.getOrDefault(post.getSharedPost().getId(), Collections.emptyList())
+                    : null;
+            return AdminPostResponse.fromEntity(post, tags, sharedTags);
+        });
     }
 
     public Page<AdminPostResponse> searchPosts(String query, String status, Pageable pageable) throws Exception {
@@ -388,6 +394,29 @@ public class PostService {
         }
         ContentStatus contentStatus = parseAndValidateContentStatus(status);
         Page<Post> posts = postRepository.searchPosts(query, contentStatus, pageable);
-        return posts.map(post -> AdminPostResponse.fromEntity(post, null));
+        Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
+        
+        return posts.map(post -> {
+            List<String> tags = tagsMap.getOrDefault(post.getId(), Collections.emptyList());
+            List<String> sharedTags = post.getSharedPost() != null
+                    ? tagsMap.getOrDefault(post.getSharedPost().getId(), Collections.emptyList())
+                    : null;
+            return AdminPostResponse.fromEntity(post, tags, sharedTags);
+        });
+    }
+
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
+    public void adminActivePost(String postId) throws Exception {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết"));
+
+        post.setStatus(ContentStatus.ACTIVE);
+        postRepository.save(post);
+
+        try {
+            postNeo4jRepository.updatePostStatus(postId, ContentStatus.ACTIVE.name());
+        } catch (Exception e) {
+            throw new Exception("Kích hoạt bài viết thành công nhưng lỗi cập nhật Neo4j: " + e.getMessage());
+        }
     }
 }

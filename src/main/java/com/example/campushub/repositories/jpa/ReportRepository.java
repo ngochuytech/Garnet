@@ -63,4 +63,6 @@ public interface ReportRepository extends JpaRepository<Report, String> {
 
         @Query("SELECT COUNT(r) FROM Report r WHERE r.createdAt >= :start AND r.createdAt < :end")
         long countReportsBetweenStartAndEnd(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+        Page<Report> findByCreatedAtBetween(LocalDateTime start, LocalDateTime end, Pageable pageable);
 }

@@ -5,6 +5,12 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.temporal.TemporalAdjusters;
+import com.example.campushub.responses.PagedResponse;
+import com.example.campushub.responses.admin.AdminReportResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -143,6 +149,17 @@ public class ReportService {
 
         return reportRepository.findByReportedUser(user, pageable)
                 .map(AdminReportResponse::fromEntity);
+    }
+
+    public PagedResponse<AdminReportResponse> getWeeklyReports(Pageable pageable) throws Exception {
+        LocalDate today = LocalDate.now();
+        LocalDate monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDateTime start = monday.atStartOfDay();
+        LocalDateTime end = LocalDateTime.now();
+
+        Page<Report> page = reportRepository.findByCreatedAtBetween(start, end, pageable);
+        Page<AdminReportResponse> mapped = page.map(AdminReportResponse::fromEntity);
+        return PagedResponse.from(mapped);
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)

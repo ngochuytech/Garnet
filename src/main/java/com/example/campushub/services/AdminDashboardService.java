@@ -14,15 +14,13 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.example.campushub.dtos.record.TopicDistributionDTO;
+import com.example.campushub.dtos.record.TopicDistributionProjection;
 import com.example.campushub.repositories.jpa.CommentReactionRepository;
 import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.PostReactionRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.ReportRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
-import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
-import com.example.campushub.repositories.neo4j.TopicDistributionProjection;
 import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
 import com.example.campushub.responses.admin.AdminStatResponse;
 import com.example.campushub.responses.admin.AdminTopicDistributionResponse;
@@ -39,7 +37,6 @@ public class AdminDashboardService {
     private final PostReactionRepository postReactionRepository;
     private final CommentReactionRepository commentReactionRepository;
     private final CommentRepository commentRepository;
-    private final PostNeo4jRepository postNeo4jRepository;
     private final TagNeo4jRepository tagNeo4jRepository;
 
     @Transactional(value = "transactionManager", readOnly = true)
@@ -115,13 +112,13 @@ public class AdminDashboardService {
 
     @Transactional(value = "transactionManager", readOnly = true)
     public List<AdminTopicDistributionResponse> getTopicDistribution() {
-        List<TopicDistributionDTO> rawDistribution = tagNeo4jRepository.findActiveTopicDistribution();
+        List<TopicDistributionProjection> rawDistribution = tagNeo4jRepository.findActiveTopicDistribution();
         if (rawDistribution.isEmpty()) {
             return Collections.emptyList();
         }
 
         long total = rawDistribution.stream()
-                .map(TopicDistributionDTO::getValue)
+                .map(topic -> topic.value())
                 .filter(value -> value != null)
                 .mapToLong(Long::longValue)
                 .sum();
@@ -133,13 +130,13 @@ public class AdminDashboardService {
         List<TopicShare> items = new ArrayList<>();
         int limit = Math.min(4, rawDistribution.size());
         for (int index = 0; index < limit; index++) {
-            TopicDistributionDTO projection = rawDistribution.get(index);
-            items.add(new TopicShare(projection.getLabel(), projection.getValue() == null ? 0L : projection.getValue()));
+            TopicDistributionProjection projection = rawDistribution.get(index);
+            items.add(new TopicShare(projection.label(), projection.value() == null ? 0L : projection.value()));
         }
 
         if (rawDistribution.size() > 4) {
             long othersCount = rawDistribution.subList(4, rawDistribution.size()).stream()
-                    .map(TopicDistributionDTO::getValue)
+                    .map(distribution -> distribution.value())
                     .filter(value -> value != null)
                     .mapToLong(Long::longValue)
                     .sum();

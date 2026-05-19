@@ -112,6 +112,24 @@ public class NotificationListener {
 
                     return;
                 }
+                
+                // NẾU THÔNG BÁO CHƯA TỒN TẠI THÌ TẠO MỚI Ở ĐÂY
+                Notification notif = Notification.builder()
+                        .recipientId(event.getRecipientId())
+                        .actor(actor)
+                        .type(event.getType())
+                        .targetType(event.getTargetType())
+                        .targetId(event.getTargetId())
+                        .message(event.getMessage())
+                        .build();
+
+                notificationRepository.save(notif);
+
+                messagingTemplate.convertAndSendToUser(
+                        event.getRecipientName(),
+                        "/queue/notifications",
+                        NotificationResponse.fromEntity(notif));
+
             } else if (event.getType() == NotificationType.NEW_FOLLOWER) {
                 // Với thông báo theo dõi, nếu đã tồn tại thì không tạo thêm, tránh spam
                 Optional<Notification> existingFollowNotif = notificationRepository

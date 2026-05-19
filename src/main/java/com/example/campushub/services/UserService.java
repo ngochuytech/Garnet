@@ -1,8 +1,12 @@
 package com.example.campushub.services;
 
 import java.security.InvalidParameterException;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -19,12 +23,14 @@ import com.example.campushub.exceptions.ForbiddenAccessException;
 import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.UserRepository;
+import com.example.campushub.repositories.neo4j.MajorNeo4jRepository;
 import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
 import com.example.campushub.responses.TopicResponse;
 import com.example.campushub.responses.admin.AdminUserResponse;
 
 import lombok.RequiredArgsConstructor;
+import net.datafaker.Faker;
 
 @Service
 @RequiredArgsConstructor
@@ -33,8 +39,10 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final UserRepository userRepository;
     private final UserNeo4jRepository userNeo4jRepository;
+    private final MajorNeo4jRepository majorNeo4jRepository;
     private final TagNeo4jRepository tagNeo4jRepository;
     private final FileUploadService fileUploadService;
+    private final Faker faker;
 
     private UserStatus parseAndValidateUserStatus(String status){
         if(status==null || status.isBlank())
@@ -189,6 +197,52 @@ public class UserService {
 
         user.setStatus(UserStatus.ACTIVE);
         userRepository.save(user);
+    }
+    
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
+    public int seedUser(int count){
+        List<String> majors = majorNeo4jRepository.findAllMajorNames();
+        List<String> tags = tagNeo4jRepository.findLeafTagsToList();
+        List<String> mutableList = new ArrayList<>(tags);
+        int successCount = 0;
+        for (int i = 0; i < count; i++) {
+            try {
+                String fullName = faker.name().fullName();
+                String email = faker.internet().emailAddress();
+                String password = "password123"; // Mật khẩu mặc định cho người dùng giả
+                boolean isGenderMale = faker.bool().bool();
+                LocalDate dateOfBirth = faker.date().birthdayLocalDate(19, 26);
+                String randomSeed = faker.internet().uuid();
+                String avatarUrl = "https://api.dicebear.com/9.x/adventurer/svg?seed=" + randomSeed;
+
+                String randomDept = faker.options().nextElement(majors);
+                Collections.shuffle(mutableList);
+                List<String> randomPicksTag = mutableList.subList(3, 7);
+
+                User user = new User();
+                user.setFullName(fullName);
+                user.setEmail(email);
+                user.setPassword(passwordEncoder.encode(password));
+                user.setGender(isGenderMale);
+                user.setDateOfBirth(dateOfBirth);
+                user.setAvatarUrl(avatarUrl);
+                user.setDepartment(randomDept);
+                user.setInterests(Set.copyOf(randomPicksTag));
+                user.setStatus(UserStatus.ACTIVE);
+
+                userRepository.save(user);
+                try {
+                    userNeo4jRepository.updateUserMajor(user.getId(), randomDept);
+                    userNeo4jRepository.updateUserTags(user.getId(), Set.copyOf(randomPicksTag));
+                } catch (Exception e) {
+                    throw new RuntimeException("Tạo người dùng thất bại tại Neo4j", e);
+                }
+                successCount++;
+            } catch (Exception e) {
+                // Bỏ qua lỗi và tiếp tục tạo người dùng tiếp theo
+            }
+        }
+        return successCount;
     }
 
 

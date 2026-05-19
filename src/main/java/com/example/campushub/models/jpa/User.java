@@ -70,7 +70,7 @@ public class User extends BaseEntity implements UserDetails {
     @Column(name = "google_id", length = 255)
     private String googleId;
 
-    @Column(name = "gender")
+    @Column(name = "gender", nullable = false)
     private Boolean gender;
 
     @ElementCollection(fetch = FetchType.EAGER)

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.context.ApplicationEventPublisher;
 
+import com.example.campushub.dtos.AiRecommendationResponse;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.DataNotFoundException;
@@ -86,12 +87,39 @@ public class FollowService {
     }
 
     public List<User> getWhoToFollow(String userId) {
-        List<String> suggestedIds = userNeo4jRepository.getSuggestedUserByHooby(userId);
-        if (suggestedIds.isEmpty() || suggestedIds.size() < 5) {
-            suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
+        List<String> suggestedIds;
+        List<String> followedIds = userNeo4jRepository.findAllFollowingIds(userId);
+        
+        try {
+            org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+            String aiUrl = "http://localhost:8000/recommend/" + userId;
+            if (followedIds != null && !followedIds.isEmpty()) {
+                String excludeParam = String.join(",", followedIds);
+                aiUrl += "?exclude=" + excludeParam;
+            }
+            
+            AiRecommendationResponse aiResponse = restTemplate.getForObject(aiUrl, AiRecommendationResponse.class);
+            if (aiResponse != null && "success".equals(aiResponse.getStatus()) && aiResponse.getRecommendations() != null) {
+                suggestedIds = aiResponse.getRecommendations().stream()
+                        .map(AiRecommendationResponse.Recommendation::getUserId)
+                        .toList();
+            } else {
+                suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
+            }
+        } catch (Exception e) {
+            suggestedIds = userNeo4jRepository.getSuggestedUserByHooby(userId);
+            if (suggestedIds.isEmpty() || suggestedIds.size() < 5) {
+                suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
+            }
         }
-        List<User> suggestedUser = userRepository.findAllById(suggestedIds);
-        return suggestedUser;
+        
+        List<User> users = userRepository.findAllById(suggestedIds);
+        // Sắp xếp lại theo thứ tự của suggestedIds (đảm bảo giữ nguyên thứ tự recommend từ AI)
+        Map<String, User> userMap = users.stream().collect(Collectors.toMap(User::getId, user -> user));
+        return suggestedIds.stream()
+                .map(userMap::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
     public Page<FollowResponse> searchUsers(String userId, String query, Pageable pageable) {

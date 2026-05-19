@@ -22,6 +22,9 @@ public interface TagNeo4jRepository extends Neo4jRepository<TagNode, String> {
                         "count{(t)<-[:INTERESTED_IN]-()} AS followerCount")
         List<TopicResponse> findLeafTags();
 
+        @Query("MATCH (t:Tag) WHERE NOT ()-[:SPECIFIC_OF]->(t) RETURN t.name as tag ORDER BY t.name")
+        List<String> findLeafTagsToList();
+
         @Query("MATCH (u:User {id: $userId})-[:INTERESTED_IN]->(t:Tag) " +
                         "RETURN t.name AS topicName, " +
                         "t.imageUrl AS imageUrl, " +

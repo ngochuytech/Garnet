@@ -120,4 +120,7 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
                      @Param("userId") String userId,
                      @Param("offset") long offset,
                      @Param("limitPlusOne") int limitPlusOne);
+
+       @Query("MATCH (u:User {id: $userId})-[:FOLLOWS]->(f:User) RETURN f.id")
+       List<String> findAllFollowingIds(@Param("userId") String userId);
 }

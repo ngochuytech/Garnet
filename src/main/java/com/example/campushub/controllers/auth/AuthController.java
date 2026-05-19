@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.campushub.components.JwtTokenProvider;
@@ -106,6 +107,11 @@ public class AuthController {
                 .build();
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, deleteCookie.toString())
                 .body(new ApiResponse<>(true, "Logged out successfully", null));
+    }
+
+    @PostMapping("/seed-users")
+    public ResponseEntity<?> seedUsers(@RequestParam(defaultValue = "1") int count){
+        return ResponseEntity.ok(ApiResponse.ok("Đã tạo " + userService.seedUser(count) + " người dùng giả thành công"));
     }
 
     @PostMapping("/refresh-token")

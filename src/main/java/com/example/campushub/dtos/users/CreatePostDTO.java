@@ -19,4 +19,6 @@ public class CreatePostDTO {
 
     @NotNull(message = "Tags must not be null")
     private Set<String> tags;
+
+    private String groupId;
 }

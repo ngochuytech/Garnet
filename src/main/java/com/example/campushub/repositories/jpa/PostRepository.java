@@ -6,6 +6,7 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -27,6 +28,8 @@ public interface PostRepository extends JpaRepository<Post, String> {
         Page<Post> findByUserAndStatus(User user, ContentStatus status, Pageable pageable);
 
         Page<Post> findByStatus(ContentStatus status, Pageable pageable);
+
+        Slice<Post> findByGroupIdAndStatus(String groupId, ContentStatus status, Pageable pageable);
 
         Optional<Post> findByIdAndStatus(String id, ContentStatus status);
 

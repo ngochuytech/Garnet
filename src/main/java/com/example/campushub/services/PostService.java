@@ -37,6 +37,10 @@ import com.example.campushub.repositories.jpa.PostEditHistoryRepository;
 import com.example.campushub.repositories.jpa.PostReactionRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
+import com.example.campushub.repositories.jpa.GroupMemberRepository;
+import com.example.campushub.models.jpa.GroupMember;
+import com.example.campushub.models.jpa.GroupMemberId;
+import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
 import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
 import com.example.campushub.responses.PostResponse;
@@ -51,6 +55,7 @@ public class PostService {
     private final PostNeo4jRepository postNeo4jRepository;
     private final TagNeo4jRepository tagNeo4jRepository;
     private final UserRepository userRepository;
+    private final GroupMemberRepository groupMemberRepository;
     private final PostReactionRepository postReactionRepository;
     private final PostEditHistoryRepository postEditHistoryRepository;
     private final FileUploadService fileUploadService;
@@ -74,9 +79,19 @@ public class PostService {
             throw new DataNotFoundException("Một hoặc nhiều chủ đề không tồn tại");
         }
 
+        if (dto.getGroupId() != null) {
+            GroupMemberId memberId = new GroupMemberId(dto.getGroupId(), user.getId());
+            GroupMember member = groupMemberRepository.findById(memberId)
+                    .orElseThrow(() -> new ForbiddenAccessException("Bạn không phải là thành viên của nhóm này"));
+            if (member.getStatus() != MemberStatus.APPROVED) {
+                throw new ForbiddenAccessException("Bạn chưa phải là thành viên thức của nhóm này");
+            }
+        }
+
         Post post = Post.builder()
                 .content(dto.getContent())
                 .user(user)
+                .groupId(dto.getGroupId())
                 .build();
 
         if (images != null && !images.isEmpty()) {
@@ -87,6 +102,9 @@ public class PostService {
         postRepository.save(post);
         try {
             postNeo4jRepository.createPost(user.getId(), post.getId(), dto.getTags());
+            if (dto.getGroupId() != null) {
+                postNeo4jRepository.linkPostToGroup(post.getId(), dto.getGroupId());
+            }
         } catch (Exception e) {
             throw new RuntimeException("Lỗi khi tạo bài viết trên Neo4j: " + e.getMessage());
         }
@@ -263,7 +281,7 @@ public class PostService {
         postRepository.save(post);
     }
 
-    @Transactional("transactionManager")
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void deletePost(User user, String postId) throws Exception {
         Post post = getPostById(postId);
         if (!post.getUser().getId().equals(user.getId())) {
@@ -278,6 +296,12 @@ public class PostService {
             postRepository.save(sharedPost);
         }
         postRepository.save(post);
+
+        try {
+            postNeo4jRepository.updatePostStatus(postId, ContentStatus.DELETED.name());
+        } catch (Exception e) {
+            throw new RuntimeException("Lỗi cập nhật trạng thái bài viết trên Neo4j: " + e.getMessage());
+        }
     }
 
     public Page<PostResponse> getActivePostsByUserId(String userId, Pageable pageable, User currentUser)
@@ -298,6 +322,19 @@ public class PostService {
 
     public Page<PostResponse> getPostsForHomeResponses(Pageable pageable, User user) throws Exception {
         Page<Post> posts = postRepository.findByStatus(ContentStatus.ACTIVE, pageable);
+        Map<String, String> reactions = getReactionsMap(posts.getContent(), user);
+        Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
+        return posts.map(post -> {
+            List<String> tags = tagsMap.getOrDefault(post.getId(), Collections.emptyList());
+            List<String> sharedTags = post.getSharedPost() != null
+                    ? tagsMap.getOrDefault(post.getSharedPost().getId(), Collections.emptyList())
+                    : null;
+            return PostResponse.fromPost(post, reactions.get(post.getId()), tags, sharedTags);
+        });
+    }
+
+    public Slice<PostResponse> getPostsByGroupId(String groupId, Pageable pageable, User user) throws Exception {
+        Slice<Post> posts = postRepository.findByGroupIdAndStatus(groupId, ContentStatus.ACTIVE, pageable);
         Map<String, String> reactions = getReactionsMap(posts.getContent(), user);
         Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
         return posts.map(post -> {

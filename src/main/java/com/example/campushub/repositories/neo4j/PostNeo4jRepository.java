@@ -24,6 +24,10 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         @Param("postId") String postId,
                         @Param("tagNames") Set<String> tagNames);
 
+        @Query("MATCH (p:Post {id: $postId}), (g:Group {id: $groupId}) " +
+                        "MERGE (p)-[:POSTED_IN]->(g)")
+        void linkPostToGroup(@Param("postId") String postId, @Param("groupId") String groupId);
+
         @Query("MATCH (u:User {id: $userId}), (originalP:Post {id: $originalPostId}) " +
                         "MERGE (sharedP:Post {id: $sharedPostId}) " +
                         "ON CREATE SET sharedP.status = 'ACTIVE' " +

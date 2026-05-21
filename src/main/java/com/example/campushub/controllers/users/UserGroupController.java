@@ -1,12 +1,15 @@
 package com.example.campushub.controllers.users;
 
 import com.example.campushub.dtos.users.CreateGroupDTO;
+import com.example.campushub.dtos.users.CreateReportGroupDTO;
+import com.example.campushub.dtos.users.UpdateGroupDescriptionDTO;
 import com.example.campushub.dtos.users.UpdateGroupNameDTO;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.PagedResponse;
 import com.example.campushub.services.GroupService;
 import com.example.campushub.services.PostService;
+import com.example.campushub.services.ReportService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -24,6 +27,7 @@ public class UserGroupController {
     
     private final GroupService groupService;
     private final PostService postService;
+    private final ReportService reportService;
 
     @GetMapping("")
     public ResponseEntity<?> getAllGroups(@AuthenticationPrincipal User user) {
@@ -34,6 +38,11 @@ public class UserGroupController {
     public ResponseEntity<?> getGroupById(@AuthenticationPrincipal User user,
                                           @PathVariable String groupId) throws Exception {
         return ResponseEntity.ok(ApiResponse.ok(groupService.getGroupById(user, groupId)));
+    }
+
+    @GetMapping("/{groupId}/status")
+    public ResponseEntity<?> getGroupStatus(@PathVariable String groupId) throws Exception {
+        return ResponseEntity.ok(ApiResponse.ok(groupService.getGroupStatus(groupId)));
     }
 
     @GetMapping("/{groupId}/posts")
@@ -50,10 +59,33 @@ public class UserGroupController {
         return ResponseEntity.ok(ApiResponse.ok(PagedResponse.from(postService.getPostsByGroupId(groupId, pageable, user))));
     }
 
+    @GetMapping("/{groupId}/members")
+    public ResponseEntity<?> getGroupMembers(@PathVariable String groupId,
+                                             @RequestParam(defaultValue = "0") int page,
+                                             @RequestParam(defaultValue = "20") int size) throws Exception {
+        Pageable pageable = PageRequest.of(page, size, Sort.by("joinedAt").descending());
+        return ResponseEntity.ok(ApiResponse.ok(PagedResponse.from(groupService.getGroupMembers(groupId, pageable))));
+    }
+
+    @GetMapping("/{groupId}/pending-members")
+    public ResponseEntity<?> getPendingGroupMembers(@AuthenticationPrincipal User currentUser,
+                                                    @PathVariable String groupId,
+                                                    @RequestParam(defaultValue = "0") int page,
+                                                    @RequestParam(defaultValue = "20") int size) throws Exception {
+        Pageable pageable = PageRequest.of(page, size, Sort.by("joinedAt").descending());
+        return ResponseEntity.ok(ApiResponse.ok(PagedResponse.from(groupService.getPendingGroupMembers(currentUser, groupId, pageable))));
+    }
+
     @PostMapping("")
     public ResponseEntity<?> createGroup(@AuthenticationPrincipal User user,
                                          @RequestBody @Valid CreateGroupDTO dto) throws Exception {
         return ResponseEntity.ok(ApiResponse.ok(groupService.createGroup(user, dto)));
+    }
+
+    @PostMapping("/seed-groups")
+    public ResponseEntity<?> seedGroups(@AuthenticationPrincipal User user,
+                                        @RequestParam(defaultValue = "10") int count) {
+        return ResponseEntity.ok(ApiResponse.ok("Đã tạo " + groupService.seedGroups(user, count) + " nhóm mẫu thành công"));
     }
 
     @PostMapping("/{groupId}/join")
@@ -63,11 +95,26 @@ public class UserGroupController {
         return ResponseEntity.ok(ApiResponse.ok("Yêu cầu tham gia nhóm thành công, vui lòng chờ duyệt."));
     }
 
+    @PostMapping("/{groupId}/report")
+    public ResponseEntity<?> reportGroup(@AuthenticationPrincipal User user,
+                                         @PathVariable String groupId,
+                                         @RequestBody @Valid CreateReportGroupDTO dto) throws Exception {
+        reportService.createReportGroup(user, groupId, dto);
+        return ResponseEntity.ok(ApiResponse.ok("Đã gửi báo cáo nhóm đến quản trị viên."));
+    }
+
     @PutMapping("/{groupId}/name")
     public ResponseEntity<?> updateGroupName(@AuthenticationPrincipal User currentUser,
                                              @PathVariable String groupId,
                                              @RequestBody @Valid UpdateGroupNameDTO dto) throws Exception {
         return ResponseEntity.ok(ApiResponse.ok(groupService.updateGroupName(currentUser, groupId, dto.getName())));
+    }
+
+    @PutMapping("/{groupId}/description")
+    public ResponseEntity<?> updateGroupDescription(@AuthenticationPrincipal User currentUser,
+                                                   @PathVariable String groupId,
+                                                   @RequestBody UpdateGroupDescriptionDTO dto) throws Exception {
+        return ResponseEntity.ok(ApiResponse.ok(groupService.updateGroupDescription(currentUser, groupId, dto.getDescription())));
     }
 
     @PostMapping("/{groupId}/avatar")

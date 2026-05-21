@@ -23,11 +23,9 @@ import com.example.campushub.dtos.users.CreatePostDTO;
 import com.example.campushub.dtos.users.CreateReportPostDTO;
 import com.example.campushub.dtos.users.CreateSharePostDTO;
 import com.example.campushub.dtos.users.UpdatePostDTO;
-import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.PagedResponse;
-import com.example.campushub.responses.PostResponse;
 import com.example.campushub.services.PostService;
 import com.example.campushub.services.ReportService;
 
@@ -73,13 +71,7 @@ public class UserPostController {
     @GetMapping("/{postId}")
     public ResponseEntity<?> getPostById(@AuthenticationPrincipal User user, @PathVariable String postId)
             throws Exception {
-        Post post = postService.getActivePostById(postId);
-        String userReaction = postService.getUserReaction(post, user);
-        List<String> tags = postService.getTagsForPost(postId);
-        List<String> sharedTags = post.getSharedPost() != null 
-                ? postService.getTagsForPost(post.getSharedPost().getId()) 
-                : null;
-        return ResponseEntity.ok().body(ApiResponse.ok(PostResponse.fromPost(post, userReaction, tags, sharedTags)));
+        return ResponseEntity.ok().body(ApiResponse.ok(postService.getActivePostResponseById(postId, user)));
     }
 
     @GetMapping("")

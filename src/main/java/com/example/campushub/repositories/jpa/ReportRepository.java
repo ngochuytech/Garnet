@@ -6,6 +6,7 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -46,7 +47,11 @@ public interface ReportRepository extends JpaRepository<Report, String> {
 
         Optional<Report> findByTargetIdAndTargetType(String targetId, ReportType type);
 
+        @EntityGraph(attributePaths = {"reporter", "reportedUser", "resolvedBy"})
         List<Report> findAllByTargetIdAndTargetType(String targetId, ReportType type);
+
+        @EntityGraph(attributePaths = {"reporter", "reportedUser", "resolvedBy"})
+        List<Report> findAllByTargetIdAndTargetTypeOrderByCreatedAtDesc(String targetId, ReportType type);
 
         @Modifying
         @Query("UPDATE Report r SET r.status = :status, r.resolvedBy = :admin, " +

@@ -98,6 +98,7 @@ public class UserProfileController {
                 .followersCount(followCounts.followersCount())
                 .followingCount(followCounts.followingCount())
                 .topics(topics)
+                .createdAt(currentUser.getCreatedAt())
                 .build()));
     }
 

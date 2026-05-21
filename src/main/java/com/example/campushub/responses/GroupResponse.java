@@ -5,6 +5,7 @@ import com.example.campushub.enums.MemberRole;
 import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
+import com.example.campushub.models.jpa.User;
 import lombok.Builder;
 import lombok.Data;
 
@@ -21,6 +22,8 @@ public class GroupResponse {
     private Integer memberCount;
     private GroupStatus status;
     private LocalDateTime createdAt;
+    private String leaderName;
+    private String leaderAvatarUrl;
     private MemberStatus memberStatus;
     private MemberRole memberRole;
     private Boolean isMember;
@@ -32,8 +35,18 @@ public class GroupResponse {
     }
 
     public static GroupResponse fromGroup(Group group, GroupMember currentUserMember) {
+        return fromGroup(group, currentUserMember, null);
+    }
+
+    public static GroupResponse fromGroup(Group group, GroupMember currentUserMember, GroupMember leaderMember) {
         MemberStatus currentMemberStatus = currentUserMember != null ? currentUserMember.getStatus() : null;
         MemberRole currentMemberRole = currentUserMember != null ? currentUserMember.getRole() : null;
+        GroupMember resolvedLeaderMember = leaderMember != null ? leaderMember : (
+                currentMemberRole == MemberRole.LEADER && currentMemberStatus == MemberStatus.APPROVED
+                        ? currentUserMember
+                        : null
+        );
+        User leader = resolvedLeaderMember != null ? resolvedLeaderMember.getUser() : null;
 
         return GroupResponse.builder()
                 .id(group.getId())
@@ -44,6 +57,8 @@ public class GroupResponse {
                 .memberCount(group.getMemberCount())
                 .status(group.getStatus())
                 .createdAt(group.getCreatedAt())
+                .leaderName(leader != null ? leader.getFullName() : null)
+                .leaderAvatarUrl(leader != null ? leader.getAvatarUrl() : null)
                 .memberStatus(currentMemberStatus)
                 .memberRole(currentMemberRole)
                 .isMember(currentMemberStatus == MemberStatus.APPROVED)

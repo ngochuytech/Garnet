@@ -27,6 +27,8 @@ public class PostResponse {
     private Integer shareCount;
     private String userReaction;
     private List<String> tags;
+    private String groupId;
+    private String groupName;
     private SharedPostResponse sharedPost;
     private List<String> images;
     private LocalDateTime createdAt;
@@ -55,6 +57,8 @@ public class PostResponse {
         private AuthorResponse author;
         private String content;
         private List<String> tags;
+        private String groupId;
+        private String groupName;
         private List<String> images;
         private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
@@ -73,6 +77,11 @@ public class PostResponse {
     }
 
     public static PostResponse fromPost(Post post, String userReaction, List<String> tags, List<String> sharedTags){
+        return fromPost(post, userReaction, tags, sharedTags, null, null);
+    }
+
+    public static PostResponse fromPost(Post post, String userReaction, List<String> tags, List<String> sharedTags,
+            String groupName, String sharedGroupName){
         return PostResponse.builder()
             .id(post.getId())
             .author(PostResponse.AuthorResponse.builder()
@@ -88,11 +97,15 @@ public class PostResponse {
             .shareCount(post.getSharedCount())
             .userReaction(userReaction)
             .tags(tags)
+            .groupId(post.getGroupId())
+            .groupName(groupName)
             .images(post.getImages())
             .sharedPost(post.getSharedPost() != null ? SharedPostResponse.builder()
                 .id(post.getSharedPost().getId())
                 .content(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? post.getSharedPost().getContent() : "Nội dung này không còn khả dụng hoặc đã bị tác giả gỡ bỏ.")
                 .tags(sharedTags)
+                .groupId(post.getSharedPost().getGroupId())
+                .groupName(sharedGroupName)
                 .images(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? post.getSharedPost().getImages() : List.of())
                 .author(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? PostResponse.AuthorResponse.builder()
                     .id(post.getSharedPost().getUser().getId())

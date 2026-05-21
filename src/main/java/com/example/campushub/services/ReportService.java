@@ -1,33 +1,40 @@
 package com.example.campushub.services;
 
-import java.util.List;
-import java.util.Optional;
-
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
-import com.example.campushub.responses.PagedResponse;
-import com.example.campushub.responses.admin.AdminReportResponse;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.campushub.dtos.admin.AdminGroupReportDTO;
 import com.example.campushub.dtos.admin.AdminReportDTO;
+import com.example.campushub.dtos.users.CreateReportGroupDTO;
 import com.example.campushub.dtos.users.CreateReportPostDTO;
 import com.example.campushub.enums.ContentStatus;
+import com.example.campushub.enums.GroupModerationAction;
+import com.example.campushub.enums.GroupStatus;
+import com.example.campushub.enums.MemberRole;
+import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.enums.ReportStatus;
 import com.example.campushub.enums.ReportType;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.models.jpa.Group;
+import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.Report;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.GroupMemberRepository;
+import com.example.campushub.repositories.jpa.GroupRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.ReportRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
+import com.example.campushub.responses.PagedResponse;
 import com.example.campushub.responses.ReportResponse;
 import com.example.campushub.responses.admin.AdminReportResponse;
 
@@ -39,6 +46,8 @@ public class ReportService {
     private final ReportRepository reportRepository;
     private final PostRepository postRepository;
     private final UserRepository userRepository;
+    private final GroupRepository groupRepository;
+    private final GroupMemberRepository groupMemberRepository;
     private final PostNeo4jRepository postNeo4jRepository;
 
     private ReportType parseAndValidateTargetType(String targetType) {
@@ -93,6 +102,32 @@ public class ReportService {
         reportRepository.save(report);
     }
 
+    public void createReportGroup(User reporter, String groupId, CreateReportGroupDTO dto) throws Exception {
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm cần báo cáo!"));
+
+        if (reportRepository.existsByReporterAndTargetTypeAndTargetId(reporter, ReportType.GROUP, group.getId())) {
+            throw new InvalidParamException("Bạn đã báo cáo nhóm này rồi!");
+        }
+
+        GroupMember leader = groupMemberRepository
+                .findFirstByGroup_IdAndRoleAndStatus(groupId, MemberRole.LEADER, MemberStatus.APPROVED)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy trưởng nhóm"));
+
+        Report report = Report.builder()
+                .reporter(reporter)
+                .targetType(ReportType.GROUP)
+                .targetId(group.getId())
+                .reportedUser(leader.getUser())
+                .reason(dto.getReason())
+                .description(dto.getDescription())
+                .reportedContentSnapshot(buildGroupSnapshot(group))
+                .status(ReportStatus.OPEN)
+                .build();
+
+        reportRepository.save(report);
+    }
+
     public Report getReportDetail(String reportId) throws Exception {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
@@ -124,6 +159,18 @@ public class ReportService {
     public void handleReportResolution(User currentUser, String reportId, String adminNote) throws Exception {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
+
+        if (report.getTargetType() == ReportType.GROUP) {
+            Group group = groupRepository.findById(report.getTargetId())
+                    .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm liên quan!"));
+            group.setStatus(GroupStatus.ARCHIVED);
+            reportRepository.updateExistingReportsStatus(report.getTargetId(), ReportType.GROUP, ReportStatus.RESOLVED, currentUser, adminNote);
+            return;
+        }
+
+        if (report.getTargetType() != ReportType.POST) {
+            throw new InvalidParamException("Loại báo cáo này chưa được hỗ trợ xử lý tự động");
+        }
 
         String targetPostId = report.getTargetId();
         reportRepository.updateExistingReportsStatus(targetPostId, ReportType.POST, ReportStatus.RESOLVED, currentUser, adminNote);
@@ -190,6 +237,45 @@ public class ReportService {
             throw new Exception("Gỡ bài viết thành công nhưng có lỗi khi cập nhật trạng thái trên Neo4j: "
                     + e.getMessage());
         }
+    }
+
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
+    public void reportGroupByAdmin(User admin, String groupId, AdminGroupReportDTO dto) throws Exception {
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+
+        GroupMember leader = groupMemberRepository
+                .findFirstByGroup_IdAndRoleAndStatus(groupId, MemberRole.LEADER, MemberStatus.APPROVED)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy trưởng nhóm"));
+
+        GroupModerationAction action = dto.getAction() != null ? dto.getAction() : GroupModerationAction.ARCHIVE;
+
+        reportRepository.updateExistingReportsStatus(groupId, ReportType.GROUP, ReportStatus.RESOLVED, admin, dto.getAdminNotes());
+
+        Report adminReport = Report.builder()
+                .targetId(groupId)
+                .targetType(ReportType.GROUP)
+                .reporter(admin)
+                .reportedUser(leader.getUser())
+                .reportedContentSnapshot(buildGroupSnapshot(group))
+                .resolvedBy(admin)
+                .adminNote(dto.getAdminNotes())
+                .reason(dto.getReason())
+                .description(dto.getDescription())
+                .status(ReportStatus.RESOLVED)
+                .build();
+        reportRepository.save(adminReport);
+
+        if (action == GroupModerationAction.ARCHIVE) {
+            group.setStatus(GroupStatus.ARCHIVED);
+        }
+    }
+
+    private String buildGroupSnapshot(Group group) {
+        return "Tên nhóm: " + group.getName()
+                + "\nMô tả: " + (group.getDescription() != null ? group.getDescription() : "")
+                + "\nSố thành viên: " + group.getMemberCount()
+                + "\nTrạng thái: " + group.getStatus();
     }
 
 }

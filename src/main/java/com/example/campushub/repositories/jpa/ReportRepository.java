@@ -20,7 +20,8 @@ import com.example.campushub.models.jpa.User;
 
 @Repository
 public interface ReportRepository extends JpaRepository<Report, String> {
-        boolean existsByReporterAndTargetTypeAndTargetId(User reporter, ReportType targetType, String targetId);
+    boolean existsByReporterAndTargetTypeAndTargetId(User reporter, ReportType targetType, String targetId);
+    boolean existsByReporterAndTargetTypeAndTargetIdAndStatus(User reporter, ReportType targetType, String targetId, ReportStatus status);
 
         Page<Report> findByReportedUser(User reportedUser, Pageable pageable);
 

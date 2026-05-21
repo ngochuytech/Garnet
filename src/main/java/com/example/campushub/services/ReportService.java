@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -19,8 +20,11 @@ import com.example.campushub.enums.GroupModerationAction;
 import com.example.campushub.enums.GroupStatus;
 import com.example.campushub.enums.MemberRole;
 import com.example.campushub.enums.MemberStatus;
+import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReportStatus;
 import com.example.campushub.enums.ReportType;
+import com.example.campushub.enums.UserRole;
+import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.Group;
@@ -49,6 +53,7 @@ public class ReportService {
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final PostNeo4jRepository postNeo4jRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     private ReportType parseAndValidateTargetType(String targetType) {
         try {
@@ -84,7 +89,7 @@ public class ReportService {
         Post post = postRepository.findById(dto.getTargetId())
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết cần báo cáo!"));
 
-        if (reportRepository.existsByReporterAndTargetTypeAndTargetId(reporter, type, post.getId())) {
+        if (reportRepository.existsByReporterAndTargetTypeAndTargetIdAndStatus(reporter, type, post.getId(), ReportStatus.OPEN)) {
             throw new InvalidParamException("Bạn đã báo cáo bài viết này rồi!");
         }
 
@@ -106,8 +111,8 @@ public class ReportService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm cần báo cáo!"));
 
-        if (reportRepository.existsByReporterAndTargetTypeAndTargetId(reporter, ReportType.GROUP, group.getId())) {
-            throw new InvalidParamException("Bạn đã báo cáo nhóm này rồi!");
+        if (reportRepository.existsByReporterAndTargetTypeAndTargetIdAndStatus(reporter, ReportType.GROUP, group.getId(), ReportStatus.OPEN)) {
+            throw new InvalidParamException("Bạn đã báo cáo nhóm này và báo cáo đang chờ xử lý!");
         }
 
         GroupMember leader = groupMemberRepository
@@ -156,15 +161,42 @@ public class ReportService {
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
-    public void handleReportResolution(User currentUser, String reportId, String adminNote) throws Exception {
+    public void handleReportResolution(User currentUser, String reportId, AdminReportDTO dto) throws Exception {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
+
+        String adminNote = dto.getAdminNotes();
+        boolean isReporterAdmin = report.getReporter() != null && report.getReporter().getRole() == UserRole.ADMIN;
 
         if (report.getTargetType() == ReportType.GROUP) {
             Group group = groupRepository.findById(report.getTargetId())
                     .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm liên quan!"));
             group.setStatus(GroupStatus.ARCHIVED);
             reportRepository.updateExistingReportsStatus(report.getTargetId(), ReportType.GROUP, ReportStatus.RESOLVED, currentUser, adminNote);
+            
+            if (!isReporterAdmin) {
+                Report adminReport = Report.builder()
+                    .targetId(group.getId())
+                    .targetType(ReportType.GROUP)
+                    .reporter(currentUser)
+                    .reportedUser(report.getReportedUser())
+                    .reportedContentSnapshot(buildGroupSnapshot(group))
+                    .resolvedBy(currentUser)
+                    .adminNote(adminNote)
+                    .reason(dto.getReason() != null ? dto.getReason() : report.getReason())
+                    .description(report.getDescription())
+                    .status(ReportStatus.RESOLVED)
+                    .build();
+                reportRepository.save(adminReport);
+            }
+
+            publishNotification(
+                    currentUser,
+                    report.getReportedUser(),
+                    NotificationType.GROUP_LOCKED,
+                    "GROUP",
+                    group.getId(),
+                    "Nhóm \"" + group.getName() + "\" đã bị khóa/ẩn do vi phạm.");
             return;
         }
 
@@ -178,6 +210,23 @@ public class ReportService {
         Post post = postRepository.findById(report.getTargetId())
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết liên quan!"));
         post.setStatus(ContentStatus.REPORTED);
+
+        if (!isReporterAdmin) {
+            Report adminReport = Report.builder()
+                    .targetId(post.getId())
+                    .targetType(ReportType.POST)
+                    .reporter(currentUser)
+                    .reportedUser(post.getUser())
+                    .reportedContentSnapshot(post.getContent())
+                    .resolvedBy(currentUser)
+                    .adminNote(adminNote)
+                    .reason(dto.getReason() != null ? dto.getReason() : report.getReason())
+                    .description(report.getDescription())
+                    .status(ReportStatus.RESOLVED)
+                    .build();
+            reportRepository.save(adminReport);
+        }
+
         try {
             postNeo4jRepository.updatePostStatus(post.getId(), ContentStatus.REPORTED.name());
         } catch (Exception e) {
@@ -268,7 +317,31 @@ public class ReportService {
 
         if (action == GroupModerationAction.ARCHIVE) {
             group.setStatus(GroupStatus.ARCHIVED);
+            publishNotification(
+                    admin,
+                    leader.getUser(),
+                    NotificationType.GROUP_LOCKED,
+                    "GROUP",
+                    group.getId(),
+                    "Nhóm \"" + group.getName() + "\" đã bị khóa/ẩn do vi phạm.");
         }
+    }
+
+    private void publishNotification(User actor, User recipient, NotificationType type, String targetType,
+            String targetId, String message) {
+        if (actor == null || recipient == null || actor.getId().equals(recipient.getId())) {
+            return;
+        }
+        NotificationEvent event = NotificationEvent.builder()
+                .recipientId(recipient.getId())
+                .recipientName(recipient.getUsername())
+                .actorId(actor.getId())
+                .type(type)
+                .targetType(targetType)
+                .targetId(targetId)
+                .message(message)
+                .build();
+        eventPublisher.publishEvent(event);
     }
 
     private String buildGroupSnapshot(Group group) {

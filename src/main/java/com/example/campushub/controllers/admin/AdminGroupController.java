@@ -47,13 +47,13 @@ public class AdminGroupController {
     @PutMapping("/{groupId}/lock")
     public ResponseEntity<?> lockGroup(@AuthenticationPrincipal User currentUser,
                                        @PathVariable String groupId) throws Exception {
-        return ResponseEntity.ok(ApiResponse.ok(groupService.adminLockGroup(groupId)));
+        return ResponseEntity.ok(ApiResponse.ok(groupService.adminLockGroup(currentUser, groupId)));
     }
 
     @PutMapping("/{groupId}/unlock")
     public ResponseEntity<?> unlockGroup(@AuthenticationPrincipal User currentUser,
                                          @PathVariable String groupId) throws Exception {
-        return ResponseEntity.ok(ApiResponse.ok(groupService.adminUnlockGroup(groupId)));
+        return ResponseEntity.ok(ApiResponse.ok(groupService.adminUnlockGroup(currentUser, groupId)));
     }
 
     @PostMapping("/{groupId}/report")

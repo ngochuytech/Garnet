@@ -161,4 +161,11 @@ public class UserGroupController {
         groupService.leaveGroup(currentUser, groupId);
         return ResponseEntity.ok(ApiResponse.ok("Đã rời khỏi nhóm thành công."));
     }
+
+    @DeleteMapping("/{groupId}")
+    public ResponseEntity<?> deleteGroup(@AuthenticationPrincipal User currentUser,
+                                         @PathVariable String groupId) throws Exception {
+        groupService.deleteGroup(currentUser, groupId);
+        return ResponseEntity.ok(ApiResponse.ok("Đã xóa nhóm thành công."));
+    }
 }

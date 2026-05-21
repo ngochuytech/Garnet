@@ -3,7 +3,6 @@ package com.example.campushub.events;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
-import org.springframework.boot.webmvc.autoconfigure.WebMvcProperties.Apiversion.Use;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Async;
@@ -180,7 +179,7 @@ public class NotificationListener {
             }
 
         } catch (Exception e) {
-            System.err.println("Lỗi lưu thông báo, nhưng Like vẫn an toàn!: " + e.getMessage());
+            System.err.println("Lỗi lưu thông báo, : " + e.getMessage());
         }
     }
 }

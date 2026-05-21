@@ -15,7 +15,7 @@ public class AiGraphUpdateScheduler {
     public void updateAiGraph() {
         try {
             RestTemplate restTemplate = new RestTemplate();
-            String aiUrl = "http://localhost:8000/update-graph"; 
+            String aiUrl = "http://localhost:8000/reload"; 
             
             log.info("Bắt đầu gọi API cập nhật Graph phía AI: {}", aiUrl);
             String response = restTemplate.postForObject(aiUrl, null, String.class);

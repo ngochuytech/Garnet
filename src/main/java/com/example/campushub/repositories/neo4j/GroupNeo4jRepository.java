@@ -18,4 +18,7 @@ public interface GroupNeo4jRepository extends Neo4jRepository<GroupNode, String>
 
     @Query("MATCH (g:Group {id: $groupId}) SET g.name = $name")
     void updateGroupName(@Param("groupId") String groupId, @Param("name") String name);
+
+    @Query("MATCH (g:Group {id: $groupId}) DETACH DELETE g")
+    void deleteGroupById(@Param("groupId") String groupId);
 }

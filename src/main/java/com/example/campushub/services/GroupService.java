@@ -4,11 +4,14 @@ import com.example.campushub.dtos.users.CreateGroupDTO;
 import com.example.campushub.enums.GroupStatus;
 import com.example.campushub.enums.MemberRole;
 import com.example.campushub.enums.MemberStatus;
+import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReportStatus;
 import com.example.campushub.enums.ReportType;
 import com.example.campushub.enums.UserRole;
+import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.ForbiddenAccessException;
+import com.example.campushub.exceptions.InvalidContentStateException;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.GroupMemberId;
@@ -25,6 +28,7 @@ import com.example.campushub.responses.GroupStatusResponse;
 import com.example.campushub.responses.ReportResponse;
 import lombok.RequiredArgsConstructor;
 import net.datafaker.Faker;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -45,6 +49,7 @@ public class GroupService {
     private final ReportRepository reportRepository;
     private final GroupNeo4jRepository groupNeo4jRepository;
     private final FileUploadService fileUploadService;
+    private final ApplicationEventPublisher eventPublisher;
     private final Faker faker;
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -205,6 +210,7 @@ public class GroupService {
                 ));
 
         List<Group> visibleGroups = groupRepository.findAll().stream()
+                .filter(group -> group.getStatus() != GroupStatus.DELETED)
                 .filter(group -> group.getStatus() == GroupStatus.ACTIVE || currentUserMembers.containsKey(group.getId()))
                 .collect(Collectors.toList());
         Map<String, GroupMember> leaderMembers = findLeaderMembersByGroupIds(
@@ -219,6 +225,9 @@ public class GroupService {
     public GroupResponse getGroupById(User currentUser, String groupId) throws Exception {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+        if (group.getStatus() == GroupStatus.DELETED) {
+            throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
+        }
         GroupMember currentUserMember = findCurrentUserMember(currentUser, groupId);
         GroupMember leaderMember = findLeaderMember(groupId);
 
@@ -229,9 +238,12 @@ public class GroupService {
     public GroupStatusResponse getGroupStatus(String groupId) throws Exception {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+        if (group.getStatus() == GroupStatus.DELETED) {
+            throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
+        }
         List<Report> groupReports = reportRepository.findAllByTargetIdAndTargetTypeOrderByCreatedAtDesc(groupId, ReportType.GROUP);
         List<ReportResponse> reports = groupReports.stream()
-                .filter(report -> report.getReporter().getRole() != UserRole.ADMIN)
+                .filter(report -> report.getReporter().getRole() == UserRole.ADMIN)
                 .filter(report -> report.getStatus() == ReportStatus.RESOLVED)
                 .map(ReportResponse::fromEntity)
                 .collect(Collectors.toList());
@@ -252,6 +264,12 @@ public class GroupService {
     public Page<GroupMemberResponse> getGroupMembers(String groupId, Pageable pageable) throws Exception {
         if (!groupRepository.existsById(groupId)) {
             throw new DataNotFoundException("Không tìm thấy nhóm");
+        }
+
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+        if (group.getStatus() == GroupStatus.DELETED) {
+            throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
         }
 
         return groupMemberRepository.findByGroup_IdAndStatus(groupId, MemberStatus.APPROVED, pageable)
@@ -353,19 +371,39 @@ public class GroupService {
 
         GroupMemberId id = new GroupMemberId(group.getId(), user.getId());
 
-        if (groupMemberRepository.existsById(id)) {
-            throw new RuntimeException("Bạn đã tham gia hoặc đang chờ duyệt vào nhóm này");
+        GroupMember member = groupMemberRepository.findById(id).orElse(null);
+        if (member != null && member.getStatus() == MemberStatus.APPROVED) {
+            throw new RuntimeException("Bạn đã là thành viên của nhóm này");
+        }
+        if (member != null && member.getStatus() == MemberStatus.PENDING) {
+            throw new RuntimeException("Bạn đang chờ duyệt vào nhóm này");
         }
 
-        GroupMember newMember = GroupMember.builder()
-                .id(id)
-                .group(group)
-                .user(user)
-                .role(MemberRole.MEMBER)
-                .status(MemberStatus.PENDING)
-                .build();
+        if (member != null) {
+            member.setStatus(MemberStatus.PENDING);
+            member.setRole(MemberRole.MEMBER);
+            member.setJoinedAt(LocalDateTime.now());
+        } else {
+            member = GroupMember.builder()
+                    .id(id)
+                    .group(group)
+                    .user(user)
+                    .role(MemberRole.MEMBER)
+                    .status(MemberStatus.PENDING)
+                    .joinedAt(LocalDateTime.now())
+                    .build();
+        }
 
-        groupMemberRepository.save(newMember);
+        groupMemberRepository.save(member);
+        GroupMember leaderMember = findLeaderMember(groupId);
+        if (leaderMember != null) {
+            publishGroupNotification(
+                    user,
+                    leaderMember.getUser(),
+                    NotificationType.GROUP_JOIN_REQUEST,
+                    group,
+                    user.getFullName() + " đã yêu cầu tham gia nhóm \"" + group.getName() + "\".");
+        }
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -398,6 +436,12 @@ public class GroupService {
         groupRepository.save(group);
 
         groupNeo4jRepository.addUserToGroup(targetUserId, groupId);
+        publishGroupNotification(
+                currentUser,
+                targetMember.getUser(),
+                NotificationType.GROUP_JOIN_APPROVED,
+                group,
+                "Yêu cầu tham gia nhóm \"" + group.getName() + "\" của bạn đã được chấp nhận.");
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -422,6 +466,13 @@ public class GroupService {
 
         targetMember.setStatus(MemberStatus.REJECTED);
         groupMemberRepository.save(targetMember);
+        Group group = currentUserMember.getGroup();
+        publishGroupNotification(
+                currentUser,
+                targetMember.getUser(),
+                NotificationType.GROUP_JOIN_REJECTED,
+                group,
+                "Yêu cầu tham gia nhóm \"" + group.getName() + "\" của bạn đã bị từ chối.");
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -455,6 +506,12 @@ public class GroupService {
         groupRepository.save(group);
 
         groupNeo4jRepository.removeUserFromGroup(targetUserId, groupId);
+        publishGroupNotification(
+                currentUser,
+                targetMember.getUser(),
+                NotificationType.GROUP_MEMBER_KICKED,
+                group,
+                "Bạn đã bị xóa khỏi nhóm \"" + group.getName() + "\".");
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -474,6 +531,28 @@ public class GroupService {
         groupRepository.save(group);
 
         groupNeo4jRepository.removeUserFromGroup(currentUser.getId(), groupId);
+    }
+
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
+    public void deleteGroup(User currentUser, String groupId) throws Exception {
+        GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
+        GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
+                .orElseThrow(() -> new ForbiddenAccessException("Bạn không phải là thành viên của nhóm này"));
+
+        assertGroupActive(currentUserMember.getGroup());
+
+        if (currentUserMember.getRole() != MemberRole.LEADER) {
+            throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền xóa nhóm");
+        }
+
+        Group group = currentUserMember.getGroup();
+        group.setStatus(GroupStatus.DELETED);
+        groupRepository.save(group);
+        try {
+            groupNeo4jRepository.deleteGroupById(groupId);
+        } catch (Exception e) {
+            throw new Exception("Xóa nhóm thành công trong MySQL nhưng lỗi khi xóa nhóm trên Neo4j: " + e.getMessage());
+        }
     }
 
     private GroupMember findCurrentUserMember(User currentUser, String groupId) {
@@ -511,23 +590,35 @@ public class GroupService {
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
-    public GroupResponse adminLockGroup(String groupId) throws Exception {
+    public GroupResponse adminLockGroup(User admin, String groupId) throws Exception {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+        if (group.getStatus() == GroupStatus.DELETED) {
+            throw new InvalidContentStateException("Nhóm này đã bị xóa");
+        }
 
         group.setStatus(GroupStatus.ARCHIVED);
         group = groupRepository.save(group);
-        return GroupResponse.fromGroup(group, null, findLeaderMember(groupId));
+        GroupMember leaderMember = findLeaderMember(groupId);
+        notifyLeader(admin, leaderMember, NotificationType.GROUP_LOCKED, group,
+                "Nhóm \"" + group.getName() + "\" đã bị khóa/ẩn do vi phạm.");
+        return GroupResponse.fromGroup(group, null, leaderMember);
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
-    public GroupResponse adminUnlockGroup(String groupId) throws Exception {
+    public GroupResponse adminUnlockGroup(User admin, String groupId) throws Exception {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+        if (group.getStatus() == GroupStatus.DELETED) {
+            throw new InvalidContentStateException("Nhóm này đã bị xóa");
+        }
 
         group.setStatus(GroupStatus.ACTIVE);
         group = groupRepository.save(group);
-        return GroupResponse.fromGroup(group, null, findLeaderMember(groupId));
+        GroupMember leaderMember = findLeaderMember(groupId);
+        notifyLeader(admin, leaderMember, NotificationType.GROUP_UNLOCKED, group,
+                "Nhóm \"" + group.getName() + "\" đã được mở lại.");
+        return GroupResponse.fromGroup(group, null, leaderMember);
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -552,6 +643,12 @@ public class GroupService {
             throw new Exception("Lỗi khi cập nhật tên nhóm trên Neo4j: " + e.getMessage());
         }
 
+        notifyApprovedMembers(
+                currentUser,
+                group,
+                NotificationType.GROUP_NAME_UPDATED,
+                "Nhóm của bạn đã đổi tên thành \"" + group.getName() + "\".");
+
         return GroupResponse.fromGroup(group, currentUserMember);
     }
 
@@ -572,5 +669,35 @@ public class GroupService {
         groupRepository.save(group);
 
         return GroupResponse.fromGroup(group, currentUserMember);
+    }
+
+    private void notifyLeader(User actor, GroupMember leaderMember, NotificationType type, Group group, String message) {
+        if (leaderMember == null) {
+            return;
+        }
+        publishGroupNotification(actor, leaderMember.getUser(), type, group, message);
+    }
+
+    private void notifyApprovedMembers(User actor, Group group, NotificationType type, String message) {
+        groupMemberRepository.findByGroup_IdAndStatus(group.getId(), MemberStatus.APPROVED).stream()
+                .map(GroupMember::getUser)
+                .filter(member -> !member.getId().equals(actor.getId()))
+                .forEach(member -> publishGroupNotification(actor, member, type, group, message));
+    }
+
+    private void publishGroupNotification(User actor, User recipient, NotificationType type, Group group, String message) {
+        if (actor == null || recipient == null || actor.getId().equals(recipient.getId())) {
+            return;
+        }
+        NotificationEvent event = NotificationEvent.builder()
+                .recipientId(recipient.getId())
+                .recipientName(recipient.getUsername())
+                .actorId(actor.getId())
+                .type(type)
+                .targetType("GROUP")
+                .targetId(group.getId())
+                .message(message)
+                .build();
+        eventPublisher.publishEvent(event);
     }
 }

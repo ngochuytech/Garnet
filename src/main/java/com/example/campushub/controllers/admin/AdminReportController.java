@@ -83,7 +83,7 @@ public class AdminReportController {
     public ResponseEntity<?> resolveReport(@AuthenticationPrincipal User currentUser,
             @PathVariable String reportId,
             @RequestBody AdminReportDTO adminReportDTO) throws Exception {
-        reportService.handleReportResolution(currentUser, reportId, adminReportDTO.getAdminNotes());
+        reportService.handleReportResolution(currentUser, reportId, adminReportDTO);
         return ResponseEntity.ok(ApiResponse.ok("Đã giải quyết báo cáo!"));
     }
 }

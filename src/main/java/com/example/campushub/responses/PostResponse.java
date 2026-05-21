@@ -82,6 +82,7 @@ public class PostResponse {
 
     public static PostResponse fromPost(Post post, String userReaction, List<String> tags, List<String> sharedTags,
             String groupName, String sharedGroupName){
+        Post sharedPost = post.getSharedPost();
         return PostResponse.builder()
             .id(post.getId())
             .author(PostResponse.AuthorResponse.builder()
@@ -97,14 +98,14 @@ public class PostResponse {
             .shareCount(post.getSharedCount())
             .userReaction(userReaction)
             .tags(tags)
-            .groupId(post.getGroupId())
+            .groupId(post.getGroup() != null ? post.getGroup().getId() : null)
             .groupName(groupName)
             .images(post.getImages())
-            .sharedPost(post.getSharedPost() != null ? SharedPostResponse.builder()
-                .id(post.getSharedPost().getId())
+            .sharedPost(sharedPost != null ? SharedPostResponse.builder()
+                .id(sharedPost.getId())
                 .content(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? post.getSharedPost().getContent() : "Nội dung này không còn khả dụng hoặc đã bị tác giả gỡ bỏ.")
                 .tags(sharedTags)
-                .groupId(post.getSharedPost().getGroupId())
+                .groupId(sharedPost.getGroup() != null ? sharedPost.getGroup().getId() : null)
                 .groupName(sharedGroupName)
                 .images(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? post.getSharedPost().getImages() : List.of())
                 .author(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? PostResponse.AuthorResponse.builder()

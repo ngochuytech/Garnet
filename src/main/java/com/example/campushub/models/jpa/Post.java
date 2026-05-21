@@ -39,8 +39,9 @@ public class Post extends BaseEntity {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(name = "group_id")
-    private String groupId;
+    @ManyToOne
+    @JoinColumn(name = "group_id")
+    private Group group;
 
     @Column(name = "content", columnDefinition = "TEXT")
     private String content;

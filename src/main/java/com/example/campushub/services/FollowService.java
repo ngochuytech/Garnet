@@ -13,8 +13,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.SliceImpl;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.context.ApplicationEventPublisher;
 
 import com.example.campushub.dtos.AiRecommendationResponse;
@@ -86,39 +90,64 @@ public class FollowService {
         }
     }
 
-    public List<User> getWhoToFollow(String userId) {
-        List<String> suggestedIds;
+    public List<FollowResponse> getWhoToFollow(String userId) {
+        List<String> suggestedIds = java.util.Collections.emptyList();
         List<String> followedIds = userNeo4jRepository.findAllFollowingIds(userId);
+        java.util.Map<String, AiRecommendationResponse.Recommendation> aiRecMap = new java.util.HashMap<>();
         
         try {
-            org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
-            String aiUrl = "http://localhost:8000/recommend/" + userId;
-            if (followedIds != null && !followedIds.isEmpty()) {
-                String excludeParam = String.join(",", followedIds);
-                aiUrl += "?exclude=" + excludeParam;
-            }
-            
-            AiRecommendationResponse aiResponse = restTemplate.getForObject(aiUrl, AiRecommendationResponse.class);
+            RestTemplate restTemplate = new RestTemplate();
+            java.util.Map<String, Object> requestBody = new java.util.HashMap<>();
+            requestBody.put("userId", userId);
+            requestBody.put("topK", 5);
+            requestBody.put("exclude", "all");
+            requestBody.put("excludeUserIds", followedIds != null ? followedIds : java.util.Collections.emptyList());
+
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(requestBody, headers);
+
+            String aiUrl = "http://localhost:8000/recommend";
+            AiRecommendationResponse aiResponse = restTemplate.postForObject(aiUrl, requestEntity, AiRecommendationResponse.class);
             if (aiResponse != null && "success".equals(aiResponse.getStatus()) && aiResponse.getRecommendations() != null) {
                 suggestedIds = aiResponse.getRecommendations().stream()
                         .map(AiRecommendationResponse.Recommendation::getUserId)
                         .toList();
+                
+                for (AiRecommendationResponse.Recommendation rec : aiResponse.getRecommendations()) {
+                    aiRecMap.put(rec.getUserId(), rec);
+                }
             } else {
                 suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
             }
         } catch (Exception e) {
             suggestedIds = userNeo4jRepository.getSuggestedUserByHooby(userId);
-            if (suggestedIds.isEmpty() || suggestedIds.size() < 5) {
+            if (suggestedIds == null || suggestedIds.isEmpty() || suggestedIds.size() < 5) {
                 suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
             }
         }
         
+        if (suggestedIds == null) return java.util.Collections.emptyList();
+
         List<User> users = userRepository.findAllById(suggestedIds);
-        // Sắp xếp lại theo thứ tự của suggestedIds (đảm bảo giữ nguyên thứ tự recommend từ AI)
         Map<String, User> userMap = users.stream().collect(Collectors.toMap(User::getId, user -> user));
+        
         return suggestedIds.stream()
                 .map(userMap::get)
                 .filter(Objects::nonNull)
+                .map(user -> {
+                    FollowResponse.FollowResponseBuilder builder = FollowResponse.builder()
+                            .id(user.getId())
+                            .fullName(user.getFullName())
+                            .avatarUrl(user.getAvatarUrl())
+                            .department(user.getDepartment());
+                    
+                    AiRecommendationResponse.Recommendation rec = aiRecMap.get(user.getId());
+                    if (rec != null) {
+                        builder.commonInterests(rec.getCommonInterests());
+                    }
+                    return builder.build();
+                })
                 .collect(Collectors.toList());
     }
 

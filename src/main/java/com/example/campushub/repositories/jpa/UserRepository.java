@@ -1,6 +1,7 @@
 package com.example.campushub.repositories.jpa;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -10,12 +11,15 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.example.campushub.enums.UserStatus;
+import com.example.campushub.enums.UserRole;
 import com.example.campushub.models.jpa.User;
 
 public interface UserRepository extends JpaRepository<User, String> {
     boolean existsByEmail(String email);
 
     Optional<User> findByEmail(String email);
+
+    List<User> findByRole(UserRole role);
 
     Page<User> findByFullNameContainingIgnoreCase(String name, Pageable pageable);
 

@@ -83,6 +83,7 @@ public class PostService {
             throw new DataNotFoundException("Một hoặc nhiều chủ đề không tồn tại");
         }
 
+        Group groupNode = null;
         if (dto.getGroupId() != null) {
             GroupMemberId memberId = new GroupMemberId(dto.getGroupId(), user.getId());
             GroupMember member = groupMemberRepository.findById(memberId)
@@ -90,9 +91,9 @@ public class PostService {
             if (member.getStatus() != MemberStatus.APPROVED) {
                 throw new ForbiddenAccessException("Bạn chưa phải là thành viên thức của nhóm này");
             }
-            Group group = groupRepository.findById(dto.getGroupId())
+            groupNode = groupRepository.findById(dto.getGroupId())
                     .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
-            if (group.getStatus() != GroupStatus.ACTIVE) {
+            if (groupNode.getStatus() != GroupStatus.ACTIVE) {
                 throw new ForbiddenAccessException("Nhóm này đã bị lưu trữ và không còn cho phép đăng bài mới");
             }
         }
@@ -100,7 +101,7 @@ public class PostService {
         Post post = Post.builder()
                 .content(dto.getContent())
                 .user(user)
-                .groupId(dto.getGroupId())
+                .group(groupNode)
                 .build();
 
         if (images != null && !images.isEmpty()) {
@@ -249,14 +250,13 @@ public class PostService {
         List<String> sharedTags = post.getSharedPost() != null
                 ? getTagsForPost(post.getSharedPost().getId())
                 : null;
-        Map<String, String> groupNames = getGroupNamesMap(List.of(post));
         return PostResponse.fromPost(
                 post,
                 userReaction,
                 tags,
                 sharedTags,
-                getGroupName(groupNames, post.getGroupId()),
-                post.getSharedPost() != null ? getGroupName(groupNames, post.getSharedPost().getGroupId()) : null);
+                post.getGroup() != null ? post.getGroup().getName() : null,
+                post.getSharedPost() != null && post.getSharedPost().getGroup() != null ? post.getSharedPost().getGroup().getName() : null);
     }
 
     public Post getPostById(String postId) throws Exception {
@@ -275,9 +275,8 @@ public class PostService {
         List<Post> posts = postRepository.findByUserAndStatus(user, ContentStatus.ACTIVE);
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
-        Map<String, String> groupNames = getGroupNamesMap(posts);
         return posts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap, groupNames))
+                .map(post -> toPostResponse(post, reactions, tagsMap))
                 .collect(Collectors.toList());
     }
 
@@ -332,24 +331,26 @@ public class PostService {
         Page<Post> posts = postRepository.findByUserAndStatus(user, ContentStatus.ACTIVE, pageable);
         Map<String, String> reactions = getReactionsMap(posts.getContent(), currentUser);
         Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
-        Map<String, String> groupNames = getGroupNamesMap(posts.getContent());
-        return posts.map(post -> toPostResponse(post, reactions, tagsMap, groupNames));
+        return posts.map(post -> toPostResponse(post, reactions, tagsMap));
     }
 
     public Page<PostResponse> getPostsForHomeResponses(Pageable pageable, User user) throws Exception {
         Page<Post> posts = postRepository.findByStatus(ContentStatus.ACTIVE, pageable);
         Map<String, String> reactions = getReactionsMap(posts.getContent(), user);
         Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
-        Map<String, String> groupNames = getGroupNamesMap(posts.getContent());
-        return posts.map(post -> toPostResponse(post, reactions, tagsMap, groupNames));
+        return posts.map(post -> toPostResponse(post, reactions, tagsMap));
     }
 
     public Slice<PostResponse> getPostsByGroupId(String groupId, Pageable pageable, User user) throws Exception {
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa"));
+        if (group.getStatus() == GroupStatus.DELETED) {
+            throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
+        }
         Slice<Post> posts = postRepository.findByGroupIdAndStatus(groupId, ContentStatus.ACTIVE, pageable);
         Map<String, String> reactions = getReactionsMap(posts.getContent(), user);
         Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
-        Map<String, String> groupNames = getGroupNamesMap(posts.getContent());
-        return posts.map(post -> toPostResponse(post, reactions, tagsMap, groupNames));
+        return posts.map(post -> toPostResponse(post, reactions, tagsMap));
     }
 
     private Map<String, String> getReactionsMap(List<Post> posts, User user) {
@@ -386,33 +387,8 @@ public class PostService {
                         }));
     }
 
-    private Map<String, String> getGroupNamesMap(List<Post> posts) {
-        if (posts.isEmpty()) {
-            return Map.of();
-        }
-        Set<String> groupIds = posts.stream()
-                .map(Post::getGroupId)
-                .filter(groupId -> groupId != null && !groupId.isBlank())
-                .collect(Collectors.toSet());
-        posts.stream()
-                .map(Post::getSharedPost)
-                .filter(sharedPost -> sharedPost != null && sharedPost.getGroupId() != null
-                        && !sharedPost.getGroupId().isBlank())
-                .map(Post::getGroupId)
-                .forEach(groupIds::add);
-        if (groupIds.isEmpty()) {
-            return Map.of();
-        }
-        return groupRepository.findAllById(groupIds).stream()
-                .collect(Collectors.toMap(Group::getId, Group::getName));
-    }
-
-    private String getGroupName(Map<String, String> groupNames, String groupId) {
-        return groupId == null ? null : groupNames.get(groupId);
-    }
-
     private PostResponse toPostResponse(Post post, Map<String, String> reactions,
-            Map<String, List<String>> tagsMap, Map<String, String> groupNames) {
+            Map<String, List<String>> tagsMap) {
         List<String> tags = tagsMap.getOrDefault(post.getId(), Collections.emptyList());
         List<String> sharedTags = post.getSharedPost() != null
                 ? tagsMap.getOrDefault(post.getSharedPost().getId(), Collections.emptyList())
@@ -422,8 +398,8 @@ public class PostService {
                 reactions.get(post.getId()),
                 tags,
                 sharedTags,
-                getGroupName(groupNames, post.getGroupId()),
-                post.getSharedPost() != null ? getGroupName(groupNames, post.getSharedPost().getGroupId()) : null);
+                post.getGroup() != null ? post.getGroup().getName() : null,
+                post.getSharedPost() != null && post.getSharedPost().getGroup() != null ? post.getSharedPost().getGroup().getName() : null);
     }
 
     public Slice<PostResponse> getPostsByTopicName(User user, String topicName, Pageable pageable) throws Exception {
@@ -441,10 +417,9 @@ public class PostService {
 
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
-        Map<String, String> groupNames = getGroupNamesMap(posts);
 
         List<PostResponse> responses = posts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap, groupNames))
+                .map(post -> toPostResponse(post, reactions, tagsMap))
                 .collect(Collectors.toList());
         return new SliceImpl<>(responses, pageable, hasNext);
     }

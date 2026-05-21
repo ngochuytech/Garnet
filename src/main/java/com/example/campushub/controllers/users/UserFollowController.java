@@ -47,15 +47,7 @@ public class UserFollowController {
 
     @GetMapping("/suggestions")
     public ResponseEntity<?> getWhoToFollow(@AuthenticationPrincipal User currentUser) {
-        List<FollowResponse> suggestedUsers = followService.getWhoToFollow(currentUser.getId())
-                .stream()
-                .map(suggestedUser -> FollowResponse.builder()
-                        .id(suggestedUser.getId())
-                        .fullName(suggestedUser.getFullName())
-                        .avatarUrl(suggestedUser.getAvatarUrl())
-                        .department(suggestedUser.getDepartment())
-                        .build())
-                .toList();
+        List<FollowResponse> suggestedUsers = followService.getWhoToFollow(currentUser.getId());
         return ResponseEntity.ok(ApiResponse.ok(suggestedUsers));
     }
 

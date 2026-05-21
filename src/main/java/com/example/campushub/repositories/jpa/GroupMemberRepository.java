@@ -25,6 +25,9 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, GroupM
     Page<GroupMember> findByGroup_IdAndStatus(String groupId, MemberStatus status, Pageable pageable);
 
     @EntityGraph(attributePaths = "user")
+    List<GroupMember> findByGroup_IdAndStatus(String groupId, MemberStatus status);
+
+    @EntityGraph(attributePaths = "user")
     Optional<GroupMember> findFirstByGroup_IdAndRoleAndStatus(String groupId, MemberRole role, MemberStatus status);
 
     @EntityGraph(attributePaths = "user")

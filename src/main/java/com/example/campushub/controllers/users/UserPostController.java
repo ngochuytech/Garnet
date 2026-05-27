@@ -111,6 +111,17 @@ public class UserPostController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Create post successfully"));
     }
 
+    @PostMapping("/seed-posts")
+    public ResponseEntity<?> seedPosts(
+            @AuthenticationPrincipal User user,
+            @RequestParam(defaultValue = "1") int count,
+            @RequestParam(defaultValue = "0") int maxReactions,
+            @RequestParam(defaultValue = "false") boolean includeImages,
+            @RequestParam(defaultValue = "false") boolean includeGroups) {
+        int seededCount = postService.seedPosts(user, count, maxReactions, includeImages, includeGroups);
+        return ResponseEntity.ok().body(ApiResponse.ok("Seeded " + seededCount + " sample posts successfully"));
+    }
+
     @PostMapping("/{postId}/like")
     public ResponseEntity<?> likePost(@AuthenticationPrincipal User user, @PathVariable String postId)
             throws Exception {

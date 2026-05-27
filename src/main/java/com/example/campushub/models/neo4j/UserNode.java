@@ -19,7 +19,7 @@ public class UserNode {
     private MajorNode major;
 
     @Relationship(type = "INTERESTED_IN", direction = Relationship.Direction.OUTGOING)
-    private Set<TagNode> interests = new HashSet<>();
+    private Set<InterestNode> interests = new HashSet<>();
 
     @Relationship(type = "FOLLOWS", direction = Relationship.Direction.OUTGOING)
     private Set<UserNode> following;

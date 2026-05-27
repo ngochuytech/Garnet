@@ -2,6 +2,7 @@ package com.example.campushub.services;
 
 import java.security.InvalidParameterException;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -24,7 +25,7 @@ import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.MajorNeo4jRepository;
-import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
+import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
 import com.example.campushub.responses.TopicResponse;
 import com.example.campushub.responses.admin.AdminUserResponse;
@@ -40,7 +41,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserNeo4jRepository userNeo4jRepository;
     private final MajorNeo4jRepository majorNeo4jRepository;
-    private final TagNeo4jRepository tagNeo4jRepository;
+    private final InterestNeo4jRepository interestNeo4jRepository;
     private final FileUploadService fileUploadService;
     private final Faker faker;
 
@@ -163,7 +164,7 @@ public class UserService {
     }
 
     public List<TopicResponse> getUserTopics(User user) {
-        return tagNeo4jRepository.getTopicUserCounts(user.getId());
+        return interestNeo4jRepository.getTopicUserCounts(user.getId());
     }
 
     // --- ADMIN ---
@@ -202,7 +203,7 @@ public class UserService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public int seedUser(int count){
         List<String> majors = majorNeo4jRepository.findAllMajorNames();
-        List<String> tags = tagNeo4jRepository.findLeafTagsToList();
+        List<String> tags = interestNeo4jRepository.findLeafTagsToList();
         List<String> mutableList = new ArrayList<>(tags);
         int successCount = 0;
         for (int i = 0; i < count; i++) {
@@ -230,6 +231,7 @@ public class UserService {
                 user.setInterests(Set.copyOf(randomPicksTag));
                 user.setStatus(UserStatus.ACTIVE);
 
+                user.setCreatedAt(LocalDateTime.now().minusMonths(1));
                 userRepository.save(user);
                 try {
                     userNeo4jRepository.updateUserMajor(user.getId(), randomDept);

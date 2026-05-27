@@ -21,7 +21,7 @@ import com.example.campushub.repositories.jpa.PostReactionRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.ReportRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
-import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
+import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.responses.admin.AdminStatResponse;
 import com.example.campushub.responses.admin.AdminTopicDistributionResponse;
 import com.example.campushub.responses.admin.AdminUserGrowthResponse;
@@ -37,7 +37,7 @@ public class AdminDashboardService {
     private final PostReactionRepository postReactionRepository;
     private final CommentReactionRepository commentReactionRepository;
     private final CommentRepository commentRepository;
-    private final TagNeo4jRepository tagNeo4jRepository;
+    private final InterestNeo4jRepository tagNeo4jRepository;
 
     @Transactional(value = "transactionManager", readOnly = true)
     public AdminStatResponse getSummary() {

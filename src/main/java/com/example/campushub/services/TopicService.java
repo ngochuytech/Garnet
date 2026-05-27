@@ -8,8 +8,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.models.jpa.User;
-import com.example.campushub.models.neo4j.TagNode;
-import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
+import com.example.campushub.models.neo4j.InterestNode;
+import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.responses.TopicResponse;
 
 import lombok.RequiredArgsConstructor;
@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class TopicService {
-    private final TagNeo4jRepository tagNeo4jRepository;
+    private final InterestNeo4jRepository tagNeo4jRepository;
     private final FileUploadService fileUploadService;
 
     public List<TopicResponse> getTopicCounts(User user) {
@@ -44,7 +44,7 @@ public class TopicService {
         if (image.getSize() > 5 * 1024 * 1024) { // 5MB limit
             throw new InvalidParameterException("Kích thước ảnh tối đa 5MB");
         }
-        TagNode tagNode = tagNeo4jRepository.findById(topicName).orElseThrow(() -> 
+        InterestNode tagNode = tagNeo4jRepository.findById(topicName).orElseThrow(() -> 
             new DataNotFoundException("Chủ đề không tồn tại: " + topicName));
 
         String imageUrl = fileUploadService.uploadFile(image, "topics");

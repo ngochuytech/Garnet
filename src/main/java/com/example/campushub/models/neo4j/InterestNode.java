@@ -6,8 +6,10 @@ import org.springframework.data.neo4j.core.schema.Node;
 import lombok.Data;
 
 @Data
-@Node("Tag")
-public class TagNode {
+@Node("Interest")
+public class InterestNode {
     @Id
     private String name;
+
+    private String imageUrl;
 }

@@ -9,9 +9,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.campushub.models.neo4j.MajorNode;
-import com.example.campushub.models.neo4j.TagNode;
+import com.example.campushub.models.neo4j.InterestNode;
 import com.example.campushub.repositories.neo4j.MajorNeo4jRepository;
-import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
+import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.TopicResponse;
 
@@ -23,7 +23,7 @@ import lombok.RequiredArgsConstructor;
 public class MetadataController {
     
     private final MajorNeo4jRepository majorNeo4jRepository;
-    private final TagNeo4jRepository tagNeo4jRepository;
+    private final InterestNeo4jRepository tagNeo4jRepository;
 
     @GetMapping("/majors")
     public ResponseEntity<?> getAllMajors() {
@@ -33,7 +33,7 @@ public class MetadataController {
         return ResponseEntity.ok().body(ApiResponse.ok(majors));
     }
 
-    @GetMapping("/tags")
+    @GetMapping({"/tags", "/interests"})
     public ResponseEntity<?> getAllTags() {
         List<TopicResponse> tags = tagNeo4jRepository.findLeafTags();
         return ResponseEntity.ok().body(ApiResponse.ok(tags));

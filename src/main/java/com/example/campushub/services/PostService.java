@@ -3,9 +3,11 @@ package com.example.campushub.services;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 import org.springframework.context.ApplicationEventPublisher;
@@ -25,10 +27,12 @@ import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.enums.GroupStatus;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReactionType;
+import com.example.campushub.enums.UserStatus;
 import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.ForbiddenAccessException;
 import com.example.campushub.exceptions.InvalidContentStateException;
+import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.PostEditHistory;
 import com.example.campushub.models.jpa.PostReaction;
@@ -45,18 +49,19 @@ import com.example.campushub.models.jpa.Group;
 import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.repositories.jpa.GroupRepository;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
-import com.example.campushub.repositories.neo4j.TagNeo4jRepository;
+import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.responses.PostResponse;
 import com.example.campushub.responses.admin.AdminPostResponse;
 
 import lombok.RequiredArgsConstructor;
+import net.datafaker.Faker;
 
 @Service
 @RequiredArgsConstructor
 public class PostService {
     private final PostRepository postRepository;
     private final PostNeo4jRepository postNeo4jRepository;
-    private final TagNeo4jRepository tagNeo4jRepository;
+    private final InterestNeo4jRepository tagNeo4jRepository;
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -64,6 +69,7 @@ public class PostService {
     private final PostEditHistoryRepository postEditHistoryRepository;
     private final FileUploadService fileUploadService;
     private final ApplicationEventPublisher eventPublisher;
+    private final Faker faker;
 
     private ContentStatus parseAndValidateContentStatus(String status) {
         if (status == null || status.isBlank()) {
@@ -118,6 +124,188 @@ public class PostService {
         } catch (Exception e) {
             throw new RuntimeException("Lỗi khi tạo bài viết trên Neo4j: " + e.getMessage());
         }
+    }
+
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
+    public int  seedPosts(User currentUser, int count, int maxReactions, boolean includeImages, boolean includeGroups) {
+        if (count < 1) {
+            throw new InvalidParamException("count must be greater than 0");
+        }
+
+        int limitedCount = Math.min(count, 100);
+        int limitedMaxReactions = Math.max(0, Math.min(maxReactions, 50));
+        Set<String> validTags = new LinkedHashSet<>(tagNeo4jRepository.findLeafTagsToList());
+        if (validTags.isEmpty()) {
+            throw new InvalidParamException("Cannot seed posts because no interest tags exist");
+        }
+
+        List<User> users = userRepository.findAll().stream()
+                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
+                .filter(user -> hasSeedableInterests(user, validTags))
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (currentUser != null
+                && currentUser.getStatus() == UserStatus.ACTIVE
+                && hasSeedableInterests(currentUser, validTags)
+                && users.stream().noneMatch(user -> user.getId().equals(currentUser.getId()))) {
+            users.add(currentUser);
+        }
+        if (users.isEmpty()) {
+            throw new InvalidParamException("Cannot seed posts because no active users with valid interests exist");
+        }
+
+        int successCount = 0;
+        for (int i = 0; i < limitedCount; i++) {
+            Post post = null;
+            try {
+                User author = randomElement(users);
+                Set<String> postTags = pickRandomTags(author.getInterests().stream()
+                        .filter(validTags::contains)
+                        .collect(Collectors.toList()), 2, 6);
+                Group group = includeGroups ? pickRandomApprovedGroup(author) : null;
+                String seed = faker.internet().uuid();
+
+                post = Post.builder()
+                        .content(buildSeedPostContent(postTags))
+                        .user(author)
+                        .group(group)
+                        .build();
+
+                if (includeImages && ThreadLocalRandom.current().nextInt(100) < 40) {
+                    post.setImages(List.of("https://picsum.photos/seed/" + seed + "/900/600"));
+                }
+
+                post = postRepository.save(post);
+                postNeo4jRepository.createPost(author.getId(), post.getId(), postTags);
+                if (group != null) {
+                    postNeo4jRepository.linkPostToGroup(post.getId(), group.getId());
+                }
+
+                seedPostReactions(post, users, limitedMaxReactions);
+                successCount++;
+            } catch (Exception e) {
+                if (post != null && post.getId() != null) {
+                    postRepository.delete(post);
+                }
+            }
+        }
+        return successCount;
+    }
+
+    private boolean hasSeedableInterests(User user, Set<String> validTags) {
+        return user.getInterests() != null
+                && user.getInterests().stream().anyMatch(validTags::contains);
+    }
+
+    private void seedPostReactions(Post post, List<User> users, int maxReactions) {
+        if (maxReactions == 0 || users.isEmpty()) {
+            return;
+        }
+
+        List<User> candidates = new ArrayList<>(users);
+        Collections.shuffle(candidates);
+        int reactionCount = ThreadLocalRandom.current().nextInt(0, Math.min(maxReactions, candidates.size()) + 1);
+        if (reactionCount == 0) {
+            return;
+        }
+
+        int liked = 0;
+        int disliked = 0;
+        List<PostReaction> reactions = new ArrayList<>();
+        for (User reactor : candidates.subList(0, reactionCount)) {
+            ReactionType type = ThreadLocalRandom.current().nextInt(100) < 80
+                    ? ReactionType.LIKE
+                    : ReactionType.DISLIKE;
+            if (type == ReactionType.LIKE) {
+                liked++;
+            } else {
+                disliked++;
+            }
+
+            reactions.add(PostReaction.builder()
+                    .id(new PostReactionId(post.getId(), reactor.getId()))
+                    .post(post)
+                    .user(reactor)
+                    .type(type)
+                    .build());
+        }
+
+        postReactionRepository.saveAll(reactions);
+        post.setLiked(liked);
+        post.setDisliked(disliked);
+        postRepository.save(post);
+    }
+
+    private Group pickRandomApprovedGroup(User author) {
+        List<Group> groups = groupMemberRepository.findByUser(author).stream()
+                .filter(member -> member.getStatus() == MemberStatus.APPROVED)
+                .map(GroupMember::getGroup)
+                .filter(group -> group.getStatus() == GroupStatus.ACTIVE)
+                .collect(Collectors.toList());
+        if (groups.isEmpty() || ThreadLocalRandom.current().nextInt(100) >= 10) {
+            return null;
+        }
+        return randomElement(groups);
+    }
+
+    private Set<String> pickRandomTags(List<String> tags, int min, int max) {
+        List<String> shuffledTags = new ArrayList<>(tags);
+        Collections.shuffle(shuffledTags);
+        int upperBound = Math.min(max, shuffledTags.size());
+        int lowerBound = Math.min(min, upperBound);
+        int tagCount = ThreadLocalRandom.current().nextInt(lowerBound, upperBound + 1);
+        return new LinkedHashSet<>(shuffledTags.subList(0, tagCount));
+    }
+
+    private String buildSeedPostContent(Set<String> tags) {
+        List<String> topicList = tags.isEmpty() ? List.of("CampusHub") : new ArrayList<>(tags);
+        String primaryTopic = topicList.get(0);
+        String topicText = joinTopics(topicList);
+
+        List<String> openings = List.of(
+                "Minh dang tim cach hoc %s hieu qua hon trong hoc ky nay.",
+                "Vua roi minh co thu ap dung %s vao mot bai tap nho va thay kha thu vi.",
+                "Co ai trong CampusHub dang quan tam den %s khong?",
+                "Minh dang gom tai lieu va kinh nghiem lien quan den %s.",
+                "Sau mot buoi trao doi voi ban be, minh thay %s co nhieu diem dang de dao sau.");
+
+        List<String> details = List.of(
+                "Phan kho nhat hien tai la biet bat dau tu dau, nen minh muon nghe cach moi nguoi chia nho noi dung va luyen tap moi ngay.",
+                "Minh thay hoc theo vi du thuc te de nho hon ly thuyet thuan tuy, nhung van can mot lo trinh ro rang de khong bi lan man.",
+                "Neu co checklist, repo mau, slide mon hoc hoac bai viet hay thi moi nguoi de lai giup minh voi.",
+                "Minh muon thu lam mot mini project trong 1-2 tuan de vua hoc vua co san pham dua vao portfolio.",
+                "Chu de nay co ve hop de lap nhom hoc nho, moi nguoi co the cung dat muc tieu va review tien do hang tuan.");
+
+        List<String> questions = List.of(
+                "Moi nguoi thuong dung nguon nao de hoc %s?",
+                "Neu bat dau lai tu dau voi %s, ban se hoc theo thu tu nao?",
+                "Co loi sai nao khi hoc %s ma nguoi moi nen tranh khong?",
+                "Ai co kinh nghiem lam project ve %s thi chia se giup minh vai tip nhe.",
+                "Theo moi nguoi, nen hoc %s mot minh hay lap nhom hoc se hieu qua hon?");
+
+        List<String> callsToAction = List.of(
+                "Ban nao cung muc tieu thi comment de minh tao mot thread tong hop tai lieu.",
+                "Neu du nguoi quan tam, minh se lap lich hoc chung va chia topic theo tung buoi.",
+                "Minh se cap nhat lai nhung nguon huu ich nhat sau khi tong hop y kien cua moi nguoi.",
+                "Ai co goc nhin khac thi cu chia se, minh muon bai nay thanh noi gom kinh nghiem that su dung duoc.",
+                "Cam on moi nguoi truoc, nhat la cac ban da tung hoc qua chu de nay.");
+
+        String opening = String.format(randomElement(openings), topicText);
+        String question = String.format(randomElement(questions), primaryTopic);
+        return opening + " " + randomElement(details) + " " + question + " " + randomElement(callsToAction);
+    }
+
+    private String joinTopics(List<String> topics) {
+        if (topics.size() == 1) {
+            return topics.get(0);
+        }
+        if (topics.size() == 2) {
+            return topics.get(0) + " va " + topics.get(1);
+        }
+        return topics.get(0) + ", " + topics.get(1) + " va " + topics.get(2);
+    }
+
+    private <T> T randomElement(List<T> values) {
+        return values.get(ThreadLocalRandom.current().nextInt(values.size()));
     }
 
     @Transactional("transactionManager")

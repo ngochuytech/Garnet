@@ -1,6 +1,7 @@
 package com.example.campushub.services;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -9,17 +10,15 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.SliceImpl;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import com.example.campushub.dtos.AiRecommendationResponse;
 import com.example.campushub.enums.NotificationType;
@@ -93,29 +92,38 @@ public class FollowService {
     public List<FollowResponse> getWhoToFollow(String userId) {
         List<String> suggestedIds = java.util.Collections.emptyList();
         List<String> followedIds = userNeo4jRepository.findAllFollowingIds(userId);
-        java.util.Map<String, AiRecommendationResponse.Recommendation> aiRecMap = new java.util.HashMap<>();
+        Map<String, AiRecommendationResponse.Recommendation> aiRecMap = new HashMap<>();
         
         try {
             RestTemplate restTemplate = new RestTemplate();
-            java.util.Map<String, Object> requestBody = new java.util.HashMap<>();
-            requestBody.put("userId", userId);
-            requestBody.put("topK", 5);
-            requestBody.put("exclude", "all");
-            requestBody.put("excludeUserIds", followedIds != null ? followedIds : java.util.Collections.emptyList());
+            UriComponentsBuilder uriBuilder = UriComponentsBuilder
+                    .fromUriString("http://localhost:8000/recommend/{userId}")
+                    .queryParam("top_k", 5)
+                    .queryParam("exclude", "all");
 
-            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
-            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(requestBody, headers);
+            if (followedIds != null && !followedIds.isEmpty()) {
+                uriBuilder.queryParam("exclude_user_ids", String.join(",", followedIds));
+            }
 
-            String aiUrl = "http://localhost:8000/recommend";
-            AiRecommendationResponse aiResponse = restTemplate.postForObject(aiUrl, requestEntity, AiRecommendationResponse.class);
+            String aiUrl = uriBuilder.buildAndExpand(userId).toUriString();
+            AiRecommendationResponse aiResponse = restTemplate.getForObject(aiUrl, AiRecommendationResponse.class);
             if (aiResponse != null && "success".equals(aiResponse.getStatus()) && aiResponse.getRecommendations() != null) {
                 suggestedIds = aiResponse.getRecommendations().stream()
-                        .map(AiRecommendationResponse.Recommendation::getUserId)
+                        .map(this::resolveBackendUserId)
+                        .filter(Objects::nonNull)
+                        .filter(id -> !id.isBlank())
+                        .distinct()
                         .toList();
                 
                 for (AiRecommendationResponse.Recommendation rec : aiResponse.getRecommendations()) {
-                    aiRecMap.put(rec.getUserId(), rec);
+                    String backendUserId = resolveBackendUserId(rec);
+                    if (backendUserId != null && !backendUserId.isBlank()) {
+                        aiRecMap.put(backendUserId, rec);
+                    }
+                }
+
+                if (suggestedIds.isEmpty()) {
+                    suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
                 }
             } else {
                 suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
@@ -149,6 +157,17 @@ public class FollowService {
                     return builder.build();
                 })
                 .collect(Collectors.toList());
+    }
+
+    private String resolveBackendUserId(AiRecommendationResponse.Recommendation recommendation) {
+        if (recommendation == null) {
+            return null;
+        }
+        String backendUserId = recommendation.getBackendUserId();
+        if (backendUserId != null && !backendUserId.isBlank()) {
+            return backendUserId;
+        }
+        return recommendation.getUserId();
     }
 
     public Page<FollowResponse> searchUsers(String userId, String query, Pageable pageable) {

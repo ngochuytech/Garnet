@@ -27,16 +27,13 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
        // Database
        @Query("MERGE (u:User {id: $userId}) " +
                      "WITH u UNWIND $tags AS tagName " +
-                     "MERGE (t:Tag {name: tagName}) " + // Dùng MERGE cho Tag để user có thể tự gõ tag mới
-                     "WITH u, t " +
-                     "WHERE NOT ()-[:SPECIFIC_OF]->(t) " + // Đảm bảo t là node lá (không có SpecificInterest nào chỉ
-                                                           // vào nó)
+                     "MATCH (t:Interest {name: tagName})-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) " +
                      "MERGE (u)-[:INTERESTED_IN]->(t) " +
                      "RETURN u")
        List<UserNode> updateUserTags(@Param("userId") String userId, @Param("tags") Set<String> tags);
 
        // 3. Xóa các topic cũ đang liên kết mà không có trong danh sách mới
-       @Query("MATCH (u:User {id: $userId})-[r:INTERESTED_IN]->(t:Tag) " +
+       @Query("MATCH (u:User {id: $userId})-[r:INTERESTED_IN]->(t:Interest) " +
                      "WHERE NOT t.name IN CASE WHEN $topics IS NULL THEN [] ELSE $topics END " +
                      "DELETE r")
        void removeOldTopics(@Param("userId") String userId, @Param("topics") Set<String> topics);
@@ -44,8 +41,7 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
        // 4. Thêm các topic mới
        @Query("MATCH (u:User {id: $userId}) " +
                      "UNWIND CASE WHEN $topics IS NULL THEN [] ELSE $topics END AS topicName " +
-                     "MATCH (newTag:Tag {name: topicName}) " +
-                     "WHERE NOT ()-[:SPECIFIC_OF]->(newTag) " +
+                     "MATCH (newTag:Interest {name: topicName})-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) " +
                      "MERGE (u)-[:INTERESTED_IN]->(newTag)")
        void addNewTopics(@Param("userId") String userId, @Param("topics") Set<String> topics);
 
@@ -83,7 +79,7 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
        FollowStats getFollowStats(@Param("userId") String userId);
 
        // 9. Lấy 5 gợi ý kết bạn dựa trên số lượng kỹ năng/ sở thích chung
-       @Query("MATCH (me:User {id: $currentUserId})-[:INTERESTED_IN]->(t:Tag)<-[:INTERESTED_IN]-(suggested:User) " +
+       @Query("MATCH (me:User {id: $currentUserId})-[:INTERESTED_IN]->(t:Interest)<-[:INTERESTED_IN]-(suggested:User) " +
                      "WHERE me <> suggested AND NOT (me)-[:FOLLOWS]->(suggested) " +
                      "WITH suggested, count(t) AS sharedInterests " +
                      "ORDER BY sharedInterests DESC " +

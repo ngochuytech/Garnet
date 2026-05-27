@@ -19,5 +19,5 @@ public class PostNode {
     private ContentStatus status = ContentStatus.ACTIVE;
 
     @Relationship(type = "HAS_TAG", direction = Relationship.Direction.OUTGOING)
-    private Set<TagNode> tags;
+    private Set<InterestNode> tags;
 }

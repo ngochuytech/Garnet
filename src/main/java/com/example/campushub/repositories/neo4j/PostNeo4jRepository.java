@@ -18,7 +18,7 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         "ON CREATE SET p.status = 'ACTIVE' " +
                         "MERGE (u)-[:POSTED]->(p) " +
                         "WITH p " +
-                        "MATCH (t:Tag) WHERE t.name IN $tagNames " +
+                        "MATCH (t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) WHERE t.name IN $tagNames " +
                         "MERGE (p)-[:HAS_TAG]->(t)")
         void createPost(@Param("userId") String userId,
                         @Param("postId") String postId,
@@ -34,7 +34,7 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         "MERGE (u)-[:POSTED]->(sharedP) " +
                         "MERGE (sharedP)-[:QUOTES]->(originalP) " +
                         "WITH sharedP " +
-                        "MATCH (t:Tag) WHERE t.name IN $tagNames " +
+                        "MATCH (t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) WHERE t.name IN $tagNames " +
                         "MERGE (sharedP)-[:HAS_TAG]->(t)")
         void createSharedPost(
                         @Param("userId") String userId,
@@ -46,22 +46,21 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         "SET p.status = $status")
         void updatePostStatus(String postId, String status);
 
-        @Query("MATCH (t:Tag {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'})  " +
+        @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'})  " +
                         "RETURN p.id " +
                         "SKIP $offset " +
                         "LIMIT $limitPlusOne")
         List<String> findActivePostIdsByTagName(@Param("tagName") String tagName,  @Param("offset") long offset, @Param("limitPlusOne") int limitPlusOne);
 
-        @Query("MATCH (p:Post {id: $postId})-[:HAS_TAG]->(t:Tag) RETURN t.name")
+        @Query("MATCH (p:Post {id: $postId})-[:HAS_TAG]->(t:Interest) RETURN t.name")
         List<String> getTagNamesByPostId(@Param("postId") String postId);
 
         @Query("MATCH (p:Post) WHERE p.id IN $postIds " +
-                        "OPTIONAL MATCH (p)-[:HAS_TAG]->(t:Tag) " +
+                        "OPTIONAL MATCH (p)-[:HAS_TAG]->(t:Interest) " +
                         "RETURN p.id AS postId, collect(t.name) AS tagNames")
         List<PostTagsDTO> findTagsByPostIds(@Param("postIds") List<String> postIds);
 
-        @Query("MATCH (p:Post {status: 'ACTIVE'})-[:HAS_TAG]->(t:Tag) " +
-                        "WHERE NOT ()-[:SPECIFIC_OF]->(t) " +
+        @Query("MATCH (p:Post {status: 'ACTIVE'})-[:HAS_TAG]->(t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) " +
                         "RETURN t.name AS label, count(DISTINCT p) AS value " +
                         "ORDER BY value DESC")
         List<TopicDistributionProjection> findActivePostTopicDistribution();

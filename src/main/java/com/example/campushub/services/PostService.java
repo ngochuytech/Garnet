@@ -1,5 +1,7 @@
 package com.example.campushub.services;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -11,10 +13,15 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.SliceImpl;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -46,6 +53,7 @@ import com.example.campushub.repositories.jpa.GroupMemberRepository;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.GroupMemberId;
 import com.example.campushub.models.jpa.Group;
+import com.example.campushub.enums.MemberRole;
 import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.repositories.jpa.GroupRepository;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
@@ -59,6 +67,11 @@ import net.datafaker.Faker;
 @Service
 @RequiredArgsConstructor
 public class PostService {
+    private static final int HOME_CANDIDATE_LIMIT = 140;
+    private static final int TOPIC_CANDIDATE_LIMIT = 140;
+    private static final int GROUP_CANDIDATE_LIMIT = 140;
+    private static final Duration HOME_FEED_CACHE_TTL = Duration.ofMinutes(5);
+
     private final PostRepository postRepository;
     private final PostNeo4jRepository postNeo4jRepository;
     private final InterestNeo4jRepository tagNeo4jRepository;
@@ -70,6 +83,7 @@ public class PostService {
     private final FileUploadService fileUploadService;
     private final ApplicationEventPublisher eventPublisher;
     private final Faker faker;
+    private final StringRedisTemplate redisTemplate;
 
     private ContentStatus parseAndValidateContentStatus(String status) {
         if (status == null || status.isBlank()) {
@@ -117,7 +131,7 @@ public class PostService {
 
         postRepository.save(post);
         try {
-            postNeo4jRepository.createPost(user.getId(), post.getId(), dto.getTags());
+            postNeo4jRepository.createPost(user.getId(), post.getId(), dto.getTags(), post.getCreatedAt());
             if (dto.getGroupId() != null) {
                 postNeo4jRepository.linkPostToGroup(post.getId(), dto.getGroupId());
             }
@@ -169,13 +183,14 @@ public class PostService {
                         .user(author)
                         .group(group)
                         .build();
+                post.setCreatedAt(randomCreatedAtWithinLastDays(3));
 
                 if (includeImages && ThreadLocalRandom.current().nextInt(100) < 40) {
                     post.setImages(List.of("https://picsum.photos/seed/" + seed + "/900/600"));
                 }
 
                 post = postRepository.save(post);
-                postNeo4jRepository.createPost(author.getId(), post.getId(), postTags);
+                postNeo4jRepository.createPost(author.getId(), post.getId(), postTags, post.getCreatedAt());
                 if (group != null) {
                     postNeo4jRepository.linkPostToGroup(post.getId(), group.getId());
                 }
@@ -308,6 +323,12 @@ public class PostService {
         return values.get(ThreadLocalRandom.current().nextInt(values.size()));
     }
 
+    private LocalDateTime randomCreatedAtWithinLastDays(int days) {
+        long maxSecondsAgo = Duration.ofDays(days).toSeconds();
+        long secondsAgo = ThreadLocalRandom.current().nextLong(maxSecondsAgo + 1);
+        return LocalDateTime.now().minusSeconds(secondsAgo);
+    }
+
     @Transactional("transactionManager")
     public void likePost(User user, String postId) throws Exception {
         Post post = getPostById(postId);
@@ -408,7 +429,7 @@ public class PostService {
                 .build();
         postRepository.save(sharedPost);
         try {
-            postNeo4jRepository.createSharedPost(user.getId(), sharedPost.getId(), originalPost.getId(), dto.getTags());
+            postNeo4jRepository.createSharedPost(user.getId(), sharedPost.getId(), originalPost.getId(), dto.getTags(), sharedPost.getCreatedAt());
         } catch (Exception e) {
             throw new RuntimeException("Lỗi khi tạo bài viết trên Neo4j: " + e.getMessage());
         }
@@ -492,9 +513,20 @@ public class PostService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void deletePost(User user, String postId) throws Exception {
         Post post = getPostById(postId);
-        if (!post.getUser().getId().equals(user.getId())) {
+        
+        boolean canDelete = post.getUser().getId().equals(user.getId());
+        if (!canDelete && post.getGroup() != null) {
+            GroupMemberId memberId = new GroupMemberId(post.getGroup().getId(), user.getId());
+            GroupMember member = groupMemberRepository.findById(memberId).orElse(null);
+            if (member != null && member.getRole() == MemberRole.LEADER) {
+                canDelete = true;
+            }
+        }
+
+        if (!canDelete) {
             throw new ForbiddenAccessException("Bạn không có quyền xóa bài viết này");
         }
+        
         post.setStatus(ContentStatus.DELETED);
 
         Post sharedPost;
@@ -523,10 +555,117 @@ public class PostService {
     }
 
     public Page<PostResponse> getPostsForHomeResponses(Pageable pageable, User user) throws Exception {
-        Page<Post> posts = postRepository.findByStatus(ContentStatus.ACTIVE, pageable);
+        String cacheKey = buildHomeFeedCacheKey(user);
+        List<String> rankedPostIds = getCachedHomeFeedPostIds(cacheKey);
+        if (rankedPostIds.isEmpty()) {
+            rankedPostIds = buildHomeFeedRankedPostIds(user);
+            cacheHomeFeedPostIds(cacheKey, rankedPostIds);
+        }
+
+        // Nếu ko có bài viết nào phù hợp, trả rỗng
+        if (rankedPostIds.isEmpty()) {
+            Page<Post> emptyPage = new PageImpl<>(Collections.emptyList(), pageable, 0);
+            return emptyPage.map(post -> null); 
+        }
+
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), rankedPostIds.size());
+        
+        List<Post> pagedPostsList = Collections.emptyList();
+        if (start < rankedPostIds.size()) {
+            List<String> pagePostIds = rankedPostIds.subList(start, end);
+            pagedPostsList = postRepository.findByIdInAndStatus(pagePostIds, ContentStatus.ACTIVE);
+            pagedPostsList.sort(Comparator.comparingInt(post -> pagePostIds.indexOf(post.getId())));
+        }
+
+        Page<Post> posts = new PageImpl<>(pagedPostsList, pageable, rankedPostIds.size());
+
         Map<String, String> reactions = getReactionsMap(posts.getContent(), user);
         Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
         return posts.map(post -> toPostResponse(post, reactions, tagsMap));
+    }
+
+    private List<String> buildHomeFeedRankedPostIds(User user) {
+        Set<String> interests = user.getInterests();
+        // TH: người dùng ko có sở thích
+        if (interests == null || interests.isEmpty()) {
+            Pageable candidatePage = PageRequest.of(
+                    0,
+                    HOME_CANDIDATE_LIMIT,
+                    Sort.by(Sort.Direction.DESC, "createdAt"));
+            return postRepository.findByStatus(ContentStatus.ACTIVE, candidatePage).getContent().stream()
+                    .map(Post::getId)
+                    .collect(Collectors.toList());
+        }
+
+        // Lấy Post IDs từ Neo4j
+        List<String> postIds = postNeo4jRepository.findActivePostIdsByTagNames(interests, HOME_CANDIDATE_LIMIT);
+        if (postIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        LocalDateTime thirtyDaysAgo = LocalDateTime.now().minusDays(30);
+
+        // Lấy thông tin Post từ MySQL để tính điểm
+        List<Post> relevantPosts = postRepository.findActivePostsByIdsAndDateAfter(postIds, thirtyDaysAgo);
+
+        relevantPosts.sort((p1, p2) -> {
+            double score1 = calculateHackerNewsScore(p1);
+            double score2 = calculateHackerNewsScore(p2);
+            return Double.compare(score2, score1);
+        });
+
+        return relevantPosts.stream()
+                .map(Post::getId)
+                .collect(Collectors.toList());
+    }
+
+    private String buildHomeFeedCacheKey(User user) {
+        Set<String> interests = user.getInterests();
+        String interestFingerprint = "none";
+        if (interests != null && !interests.isEmpty()) {
+            interestFingerprint = Integer.toHexString(interests.stream()
+                    .sorted()
+                    .collect(Collectors.joining(","))
+                    .hashCode());
+        }
+        return "campushub:home-feed:" + user.getId() + ":" + interestFingerprint;
+    }
+
+    private List<String> getCachedHomeFeedPostIds(String cacheKey) {
+        try {
+            List<String> cachedPostIds = redisTemplate.opsForList().range(cacheKey, 0, -1);
+            return cachedPostIds == null ? Collections.emptyList() : cachedPostIds;
+        } catch (DataAccessException e) {
+            return Collections.emptyList();
+        }
+    }
+
+    private void cacheHomeFeedPostIds(String cacheKey, List<String> postIds) {
+        if (postIds.isEmpty()) {
+            return;
+        }
+        try {
+            redisTemplate.delete(cacheKey);
+            redisTemplate.opsForList().rightPushAll(cacheKey, postIds);
+            redisTemplate.expire(cacheKey, HOME_FEED_CACHE_TTL);
+        } catch (DataAccessException e) {
+            System.err.println("Failed to cache home feed post IDs: " + e.getMessage());
+        }
+    }
+
+    private double calculateHackerNewsScore(Post post) {
+        int likes = post.getLiked() != null ? post.getLiked() : 0;
+        int dislikes = post.getDisliked() != null ? post.getDisliked() : 0;
+        int comments = post.getCommentCount() != null ? post.getCommentCount() : 0;
+        
+        int E = likes + (comments * 3) - (dislikes * 2);
+        
+        long hoursBetween = java.time.temporal.ChronoUnit.HOURS.between(post.getCreatedAt(), LocalDateTime.now());
+        double T = Math.max(hoursBetween, 0.0);
+        double G = 1.8;
+        
+        return E / Math.pow(T + 2, G);
     }
 
     public Slice<PostResponse> getPostsByGroupId(String groupId, Pageable pageable, User user) throws Exception {
@@ -535,10 +674,40 @@ public class PostService {
         if (group.getStatus() == GroupStatus.DELETED) {
             throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
         }
-        Slice<Post> posts = postRepository.findByGroupIdAndStatus(groupId, ContentStatus.ACTIVE, pageable);
-        Map<String, String> reactions = getReactionsMap(posts.getContent(), user);
-        Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
-        return posts.map(post -> toPostResponse(post, reactions, tagsMap));
+        Pageable candidatePage = PageRequest.of(
+                0,
+                GROUP_CANDIDATE_LIMIT,
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+        List<Post> posts = new ArrayList<>(
+                postRepository.findByGroupIdAndStatus(groupId, ContentStatus.ACTIVE, candidatePage).getContent());
+                
+        if(posts.isEmpty()) {
+            return new SliceImpl<>(Collections.emptyList(), pageable, false);
+        }
+
+        if (posts.size() > 1) {
+            posts.sort((p1, p2) -> {
+                double score1 = calculateHackerNewsScore(p1);
+                double score2 = calculateHackerNewsScore(p2);
+                return Double.compare(score2, score1);
+            });
+        }
+
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), posts.size());
+        boolean hasNext = end < posts.size();
+        if (start >= posts.size()) {
+            return new SliceImpl<>(Collections.emptyList(), pageable, false);
+        }
+        List<Post> pagedPosts = posts.subList(start, end);
+
+        Map<String, String> reactions = getReactionsMap(pagedPosts, user);
+        Map<String, List<String>> tagsMap = getTagsMap(pagedPosts);
+
+        List<PostResponse> responses = pagedPosts.stream()
+                .map(post -> toPostResponse(post, reactions, tagsMap))
+                .collect(Collectors.toList());
+        return new SliceImpl<>(responses, pageable, hasNext);
     }
 
     private Map<String, String> getReactionsMap(List<Post> posts, User user) {
@@ -591,22 +760,30 @@ public class PostService {
     }
 
     public Slice<PostResponse> getPostsByTopicName(User user, String topicName, Pageable pageable) throws Exception {
-        List<String> postIds = postNeo4jRepository.findActivePostIdsByTagName(topicName, pageable.getOffset(), pageable.getPageSize() + 1);
-        boolean hasNext = postIds.size() > pageable.getPageSize();
-
-        if (hasNext) {
-            postIds.remove(postIds.size() - 1);
-        }
+        List<String> postIds = postNeo4jRepository.findActivePostIdsByTagName(topicName, TOPIC_CANDIDATE_LIMIT);
         if (postIds.isEmpty()) {
             return new SliceImpl<>(Collections.emptyList(), pageable, false);
         }
+
         List<Post> posts = postRepository.findByIdInAndStatus(postIds, ContentStatus.ACTIVE);
-        posts.sort(Comparator.comparingInt(post -> postIds.indexOf(post.getId().toString())));
+        posts.sort((p1, p2) -> {
+            double score1 = calculateHackerNewsScore(p1);
+            double score2 = calculateHackerNewsScore(p2);
+            return Double.compare(score2, score1);
+        });
 
-        Map<String, String> reactions = getReactionsMap(posts, user);
-        Map<String, List<String>> tagsMap = getTagsMap(posts);
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), posts.size());
+        boolean hasNext = end < posts.size();
+        if (start >= posts.size()) {
+            return new SliceImpl<>(Collections.emptyList(), pageable, false);
+        }
+        List<Post> pagedPosts = posts.subList(start, end);
 
-        List<PostResponse> responses = posts.stream()
+        Map<String, String> reactions = getReactionsMap(pagedPosts, user);
+        Map<String, List<String>> tagsMap = getTagsMap(pagedPosts);
+
+        List<PostResponse> responses = pagedPosts.stream()
                 .map(post -> toPostResponse(post, reactions, tagsMap))
                 .collect(Collectors.toList());
         return new SliceImpl<>(responses, pageable, hasNext);

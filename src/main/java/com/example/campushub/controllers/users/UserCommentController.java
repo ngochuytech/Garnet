@@ -16,12 +16,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.campushub.dtos.users.CreateCommentDTO;
+import com.example.campushub.dtos.users.CreateReportCommentDTO;
 import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.CommentResponse;
 import com.example.campushub.responses.PagedResponse;
 import com.example.campushub.services.CommentService;
+import com.example.campushub.services.ReportService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +33,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class UserCommentController {
     private final CommentService commentService;
+    private final ReportService reportService;
 
     @GetMapping("")
     public ResponseEntity<?> getCommentsByPostId(@AuthenticationPrincipal User user, @RequestParam String postId,
@@ -79,5 +82,12 @@ public class UserCommentController {
             throws Exception {
         commentService.dislikeComment(user, commentId);
         return ResponseEntity.ok().body(ApiResponse.ok("Disliked comment successfully"));
+    }
+
+    @PostMapping("/{commentId}/report")
+    public ResponseEntity<?> reportComment(@AuthenticationPrincipal User user, @PathVariable String commentId,
+            @RequestBody @Valid CreateReportCommentDTO dto) throws Exception {
+        reportService.reportComment(user, commentId, dto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Báo cáo bình luận thành công!"));
     }
 }

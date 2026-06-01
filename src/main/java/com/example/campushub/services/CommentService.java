@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.context.ApplicationEventPublisher;
 
+import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReactionType;
 import com.example.campushub.events.NotificationEvent;
@@ -47,14 +48,14 @@ public class CommentService {
 
         if (lastCommentId == null || lastCommentId.isEmpty()) {
             // Lần load đầu tiên (lấy các comment mới nhất)
-            comments = commentRepository.findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(
-                    postId, fetchPageable);
+            comments = commentRepository.findByPostIdAndParentCommentIsNullAndStatusOrderByCreatedAtDesc(
+                    postId, ContentStatus.ACTIVE, fetchPageable);
         } else {
             // Các lần load tiếp theo
             Comment lastComment = commentRepository.findById(lastCommentId)
                     .orElseThrow(() -> new DataNotFoundException("Khong tim thay comment cuoi cung"));
-            comments = commentRepository.findByPostIdAndParentCommentIsNullAndCreatedAtLessThanOrderByCreatedAtDesc(
-                    postId, lastComment.getCreatedAt(), fetchPageable);
+            comments = commentRepository.findByPostIdAndParentCommentIsNullAndStatusAndCreatedAtLessThanOrderByCreatedAtDesc(
+                    postId, ContentStatus.ACTIVE, lastComment.getCreatedAt(), fetchPageable);
         }
 
         boolean hasNext = comments.size() > limit;
@@ -68,11 +69,13 @@ public class CommentService {
     public List<Comment> getCommentReplies(String commentId, String lastCommentId, Integer limit) throws Exception{
         List<Comment> replies;
         if(lastCommentId == null){
-            replies = commentRepository.findByParentComment_IdOrderByCreatedAtAsc(commentId, PageRequest.of(0 , limit));
+            replies = commentRepository.findByParentComment_IdAndStatusOrderByCreatedAtAsc(
+                    commentId, ContentStatus.ACTIVE, PageRequest.of(0 , limit));
         } else {
             Comment lastComment = commentRepository.findById(lastCommentId)
                 .orElseThrow(() -> new DataNotFoundException("Bình luận không tồn tại"));
-            replies = commentRepository.findByParentComment_IdAndCreatedAtGreaterThanOrderByCreatedAtAsc(commentId, lastComment.getCreatedAt(), PageRequest.of(0, limit));
+            replies = commentRepository.findByParentComment_IdAndStatusAndCreatedAtGreaterThanOrderByCreatedAtAsc(
+                    commentId, ContentStatus.ACTIVE, lastComment.getCreatedAt(), PageRequest.of(0, limit));
         }
         return replies;
     }

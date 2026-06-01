@@ -1,5 +1,6 @@
 package com.example.campushub.repositories.neo4j;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
@@ -15,14 +16,15 @@ import com.example.campushub.models.neo4j.PostNode;
 public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
         @Query("MATCH (u:User {id: $userId}) " +
                         "MERGE (p:Post {id: $postId}) " +
-                        "ON CREATE SET p.status = 'ACTIVE' " +
+                        "ON CREATE SET p.status = 'ACTIVE', p.createdAt = $createdAt " +
                         "MERGE (u)-[:POSTED]->(p) " +
                         "WITH p " +
                         "MATCH (t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) WHERE t.name IN $tagNames " +
                         "MERGE (p)-[:HAS_TAG]->(t)")
         void createPost(@Param("userId") String userId,
                         @Param("postId") String postId,
-                        @Param("tagNames") Set<String> tagNames);
+                        @Param("tagNames") Set<String> tagNames,
+                        @Param("createdAt") LocalDateTime createdAt);
 
         @Query("MATCH (p:Post {id: $postId}), (g:Group {id: $groupId}) " +
                         "MERGE (p)-[:POSTED_IN]->(g)")
@@ -30,7 +32,7 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
 
         @Query("MATCH (u:User {id: $userId}), (originalP:Post {id: $originalPostId}) " +
                         "MERGE (sharedP:Post {id: $sharedPostId}) " +
-                        "ON CREATE SET sharedP.status = 'ACTIVE' " +
+                        "ON CREATE SET sharedP.status = 'ACTIVE', sharedP.createdAt = $createdAt " +
                         "MERGE (u)-[:POSTED]->(sharedP) " +
                         "MERGE (sharedP)-[:QUOTES]->(originalP) " +
                         "WITH sharedP " +
@@ -40,17 +42,33 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         @Param("userId") String userId,
                         @Param("sharedPostId") String sharedPostId,
                         @Param("originalPostId") String originalPostId,
-                        @Param("tagNames") Set<String> tagNames);
+                        @Param("tagNames") Set<String> tagNames,
+                        @Param("createdAt") LocalDateTime createdAt);
 
         @Query("MATCH (p:Post {id: $postId}) " +
                         "SET p.status = $status")
         void updatePostStatus(String postId, String status);
 
         @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'})  " +
+                        "ORDER BY p.createdAt DESC " +
                         "RETURN p.id " +
                         "SKIP $offset " +
                         "LIMIT $limitPlusOne")
         List<String> findActivePostIdsByTagName(@Param("tagName") String tagName,  @Param("offset") long offset, @Param("limitPlusOne") int limitPlusOne);
+
+        @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'})  " +
+                        "ORDER BY p.createdAt DESC " +
+                        "RETURN p.id " +
+                        "LIMIT $limit")
+        List<String> findActivePostIdsByTagName(@Param("tagName") String tagName, @Param("limit") int limit);
+
+        @Query("MATCH (p:Post {status: 'ACTIVE'})-[:HAS_TAG]->(t:Interest) " +
+               "WHERE t.name IN $tagNames " +
+               "WITH DISTINCT p " +
+               "ORDER BY p.createdAt DESC " +
+               "RETURN p.id " +
+               "LIMIT $limit")
+        List<String> findActivePostIdsByTagNames(@Param("tagNames") Set<String> tagNames, @Param("limit") int limit);
 
         @Query("MATCH (p:Post {id: $postId})-[:HAS_TAG]->(t:Interest) RETURN t.name")
         List<String> getTagNamesByPostId(@Param("postId") String postId);

@@ -76,7 +76,7 @@ public class UserPostController {
 
     @GetMapping("")
     public ResponseEntity<?> getPosts(@AuthenticationPrincipal User user, @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir) throws Exception {
         Sort sort = sortDir.equalsIgnoreCase("desc")

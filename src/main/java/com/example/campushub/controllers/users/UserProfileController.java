@@ -37,6 +37,46 @@ public class UserProfileController {
     private final UserService userService;
     private final FollowService followService;
 
+    @GetMapping("/me")
+    public ResponseEntity<?> getCurrentUser(@AuthenticationPrincipal User currentUser) throws Exception {
+        List<TopicResponse> topics = userService.getUserTopics(currentUser);
+        FollowStats followCounts = followService.countFollowersAndFollowing(currentUser.getId());
+
+        return ResponseEntity.ok().body(ApiResponse.ok(InformationResponse.builder()
+                .fullname(currentUser.getFullName())
+                .avatarUrl(currentUser.getAvatarUrl())
+                .dateOfBirth(currentUser.getDateOfBirth())
+                .phone(currentUser.getPhone())
+                .gender(currentUser.getGender() != null ? currentUser.getGender() : false)
+                .email(currentUser.getEmail())
+                .bio(currentUser.getBio())
+                .department(currentUser.getDepartment())
+                .followersCount(followCounts.followersCount())
+                .followingCount(followCounts.followingCount())
+                .topics(topics)
+                .createdAt(currentUser.getCreatedAt())
+                .build()));
+    }
+
+    @GetMapping("/{userId}")
+    public ResponseEntity<?> getUserProfile(@AuthenticationPrincipal User currentUser, @PathVariable String userId) throws Exception {
+        User userProfile = userService.getUserById(userId);
+        List<TopicResponse> topics = userService.getUserTopics(userProfile);
+        FollowStats followCounts = followService.countFollowersAndFollowing(userId);
+        Boolean isFollowing = followService.checkIfFollowing(currentUser.getId(), userProfile.getId());
+        return ResponseEntity.ok().body(ApiResponse.ok(AnotherUserResponse.builder()
+                .id(userProfile.getId())
+                .fullname(userProfile.getFullName())
+                .avatarUrl(userProfile.getAvatarUrl())
+                .bio(userProfile.getBio())
+                .department(userProfile.getDepartment())
+                .isFollowing(isFollowing)
+                .followersCount(followCounts.followersCount())
+                .followingCount(followCounts.followingCount())
+                .topics(topics)
+                .build()));
+    }
+
     @PostMapping("/setup")
     public ResponseEntity<?> setupProfile(@AuthenticationPrincipal User currentUser,
             @RequestBody @Valid ProfileSetUpDTO dto) throws Exception {
@@ -81,43 +121,4 @@ public class UserProfileController {
         return ResponseEntity.ok().body(ApiResponse.ok("Cập nhật chủ đề quan tâm thành công"));
     }
 
-    @GetMapping("/me")
-    public ResponseEntity<?> getCurrentUser(@AuthenticationPrincipal User currentUser) throws Exception {
-        List<TopicResponse> topics = userService.getUserTopics(currentUser);
-        FollowStats followCounts = followService.countFollowersAndFollowing(currentUser.getId());
-
-        return ResponseEntity.ok().body(ApiResponse.ok(InformationResponse.builder()
-                .fullname(currentUser.getFullName())
-                .avatarUrl(currentUser.getAvatarUrl())
-                .dateOfBirth(currentUser.getDateOfBirth())
-                .phone(currentUser.getPhone())
-                .gender(currentUser.getGender() != null ? currentUser.getGender() : false)
-                .email(currentUser.getEmail())
-                .bio(currentUser.getBio())
-                .department(currentUser.getDepartment())
-                .followersCount(followCounts.followersCount())
-                .followingCount(followCounts.followingCount())
-                .topics(topics)
-                .createdAt(currentUser.getCreatedAt())
-                .build()));
-    }
-
-    @GetMapping("/{userId}")
-    public ResponseEntity<?> getUserProfile(@AuthenticationPrincipal User currentUser, @PathVariable String userId) throws Exception {
-        User userProfile = userService.getUserById(userId);
-        List<TopicResponse> topics = userService.getUserTopics(userProfile);
-        FollowStats followCounts = followService.countFollowersAndFollowing(userId);
-        Boolean isFollowing = followService.checkIfFollowing(currentUser.getId(), userProfile.getId());
-        return ResponseEntity.ok().body(ApiResponse.ok(AnotherUserResponse.builder()
-                .id(userProfile.getId())
-                .fullname(userProfile.getFullName())
-                .avatarUrl(userProfile.getAvatarUrl())
-                .bio(userProfile.getBio())
-                .department(userProfile.getDepartment())
-                .isFollowing(isFollowing)
-                .followersCount(followCounts.followersCount())
-                .followingCount(followCounts.followingCount())
-                .topics(topics)
-                .build()));
-    }
 }

@@ -1,5 +1,6 @@
 package com.example.campushub.models.neo4j;
 
+import java.time.LocalDateTime;
 import java.util.Set;
 
 import org.springframework.data.neo4j.core.schema.Id;
@@ -17,6 +18,8 @@ public class PostNode {
     private String id;
 
     private ContentStatus status = ContentStatus.ACTIVE;
+
+    private LocalDateTime createdAt;
 
     @Relationship(type = "HAS_TAG", direction = Relationship.Direction.OUTGOING)
     private Set<InterestNode> tags;

@@ -4,6 +4,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
+import java.util.List;
 
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
@@ -13,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.dtos.admin.AdminGroupReportDTO;
 import com.example.campushub.dtos.admin.AdminReportDTO;
+import com.example.campushub.dtos.users.CreateReportCommentDTO;
 import com.example.campushub.dtos.users.CreateReportGroupDTO;
 import com.example.campushub.dtos.users.CreateReportPostDTO;
 import com.example.campushub.enums.ContentStatus;
@@ -27,11 +29,13 @@ import com.example.campushub.enums.UserRole;
 import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.Report;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.GroupMemberRepository;
 import com.example.campushub.repositories.jpa.GroupRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
@@ -49,6 +53,7 @@ import lombok.RequiredArgsConstructor;
 public class ReportService {
     private final ReportRepository reportRepository;
     private final PostRepository postRepository;
+    private final CommentRepository commentRepository;
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -133,6 +138,33 @@ public class ReportService {
         reportRepository.save(report);
     }
 
+    public void reportComment(User reporter, String commentId, CreateReportCommentDTO dto) throws Exception {
+        Comment comment = commentRepository.findById(commentId)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận cần báo cáo!"));
+
+        if (comment.getStatus() != ContentStatus.ACTIVE) {
+            throw new DataNotFoundException("Bình luận này không tồn tại hoặc đã bị xóa!");
+        }
+
+        if (reportRepository.existsByReporterAndTargetTypeAndTargetIdAndStatus(
+                reporter, ReportType.COMMENT, comment.getId(), ReportStatus.OPEN)) {
+            throw new InvalidParamException("Bạn đã báo cáo bình luận này và báo cáo đang chờ xử lý!");
+        }
+
+        Report report = Report.builder()
+                .reporter(reporter)
+                .targetType(ReportType.COMMENT)
+                .targetId(comment.getId())
+                .reportedUser(comment.getUser())
+                .reason(dto.getReason())
+                .description(dto.getDescription())
+                .reportedContentSnapshot(comment.getContent())
+                .status(ReportStatus.OPEN)
+                .build();
+
+        reportRepository.save(report);
+    }
+
     public Report getReportDetail(String reportId) throws Exception {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
@@ -197,6 +229,35 @@ public class ReportService {
                     "GROUP",
                     group.getId(),
                     "Nhóm \"" + group.getName() + "\" đã bị khóa/ẩn do vi phạm.");
+            return;
+        }
+
+        if (report.getTargetType() == ReportType.COMMENT) {
+            String targetCommentId = report.getTargetId();
+            reportRepository.updateExistingReportsStatus(targetCommentId, ReportType.COMMENT, ReportStatus.RESOLVED, currentUser, adminNote);
+
+            Comment comment = commentRepository.findById(targetCommentId)
+                    .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận liên quan!"));
+            if (comment.getStatus() == ContentStatus.ACTIVE) {
+                int hiddenCommentCount = hideActiveCommentTree(comment);
+                decrementCommentCounters(comment, hiddenCommentCount);
+            }
+
+            if (!isReporterAdmin) {
+                Report adminReport = Report.builder()
+                        .targetId(comment.getId())
+                        .targetType(ReportType.COMMENT)
+                        .reporter(currentUser)
+                        .reportedUser(comment.getUser())
+                        .reportedContentSnapshot(comment.getContent())
+                        .resolvedBy(currentUser)
+                        .adminNote(adminNote)
+                        .reason(dto.getReason() != null ? dto.getReason() : report.getReason())
+                        .description(report.getDescription())
+                        .status(ReportStatus.RESOLVED)
+                        .build();
+                reportRepository.save(adminReport);
+            }
             return;
         }
 
@@ -342,6 +403,39 @@ public class ReportService {
                 .message(message)
                 .build();
         eventPublisher.publishEvent(event);
+    }
+
+    private int hideActiveCommentTree(Comment comment) {
+        if (comment.getStatus() != ContentStatus.ACTIVE) {
+            return 0;
+        }
+
+        int hiddenCount = 1;
+        List<Comment> activeReplies = commentRepository.findByParentComment_IdAndStatus(
+                comment.getId(), ContentStatus.ACTIVE);
+        for (Comment reply : activeReplies) {
+            hiddenCount += hideActiveCommentTree(reply);
+        }
+
+        comment.setStatus(ContentStatus.HIDDEN);
+        commentRepository.save(comment);
+        return hiddenCount;
+    }
+
+    private void decrementCommentCounters(Comment comment, int hiddenCommentCount) {
+        Post post = comment.getPost();
+        if (post != null) {
+            int commentCount = post.getCommentCount() != null ? post.getCommentCount() : 0;
+            post.setCommentCount(Math.max(0, commentCount - hiddenCommentCount));
+            postRepository.save(post);
+        }
+
+        Comment parentComment = comment.getParentComment();
+        if (parentComment != null && parentComment.getStatus() == ContentStatus.ACTIVE) {
+            int replyCount = parentComment.getReplyCount() != null ? parentComment.getReplyCount() : 0;
+            parentComment.setReplyCount(Math.max(0, replyCount - 1));
+            commentRepository.save(parentComment);
+        }
     }
 
     private String buildGroupSnapshot(Group group) {

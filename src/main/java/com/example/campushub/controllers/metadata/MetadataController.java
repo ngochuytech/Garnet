@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.campushub.models.neo4j.MajorNode;
-import com.example.campushub.models.neo4j.InterestNode;
 import com.example.campushub.repositories.neo4j.MajorNeo4jRepository;
 import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.responses.ApiResponse;

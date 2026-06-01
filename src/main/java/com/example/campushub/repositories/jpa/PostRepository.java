@@ -47,6 +47,12 @@ public interface PostRepository extends JpaRepository<Post, String> {
         void incrementCommentCount(@Param("postId") String postId);
 
         @Query("SELECT p FROM Post p " +
+               "WHERE p.status = 'ACTIVE' " +
+               "AND p.createdAt >= :startDate " +
+               "AND p.id IN :postIds")
+        List<Post> findActivePostsByIdsAndDateAfter(@Param("postIds") List<String> postIds, @Param("startDate") LocalDateTime startDate);
+
+        @Query("SELECT p FROM Post p " +
                         "WHERE (:query IS NULL " +
                         "OR p.id LIKE CONCAT('%', :query, '%') " +
                         "OR LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%')) " +

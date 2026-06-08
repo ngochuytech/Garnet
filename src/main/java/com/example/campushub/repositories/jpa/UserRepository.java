@@ -21,14 +21,15 @@ public interface UserRepository extends JpaRepository<User, String> {
 
     List<User> findByRole(UserRole role);
 
+    List<User> findByStatus(UserStatus status);
+
     Page<User> findByFullNameContainingIgnoreCase(String name, Pageable pageable);
 
     @Query("SELECT u FROM User u " +
             "WHERE (:query IS NULL " +
             "OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :query, '%')) " +
             "OR u.id LIKE CONCAT('%', :query, '%') " +
-            "OR LOWER(u.email) LIKE LOWER(CONCAT('%', :query, '%')) " +
-            "OR LOWER(u.phone) LIKE LOWER(CONCAT('%', :query, '%'))) " +
+            "OR LOWER(u.email) LIKE LOWER(CONCAT('%', :query, '%'))) " +
             "AND (:status IS NULL OR u.status = :status)")
     Page<User> findByQueryAndOptionalStatus(@Param("query") String query, @Param("status") UserStatus status, Pageable pageable);
 

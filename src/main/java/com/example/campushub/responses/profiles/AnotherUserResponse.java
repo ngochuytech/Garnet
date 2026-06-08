@@ -1,7 +1,9 @@
 package com.example.campushub.responses.profiles;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
+import com.example.campushub.responses.GroupResponse;
 import com.example.campushub.responses.TopicResponse;
 
 import lombok.AllArgsConstructor;
@@ -23,4 +25,6 @@ public class AnotherUserResponse {
     private Long followersCount;
     private Long followingCount;
     private List<TopicResponse> topics;
+    private List<GroupResponse> groups;
+    private LocalDateTime createdAt;
 }

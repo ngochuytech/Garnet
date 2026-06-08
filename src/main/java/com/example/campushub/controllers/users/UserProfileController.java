@@ -21,6 +21,7 @@ import com.example.campushub.dtos.users.UpdatePasswordDTO;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.FollowStats;
+import com.example.campushub.responses.GroupResponse;
 import com.example.campushub.responses.TopicResponse;
 import com.example.campushub.responses.profiles.AnotherUserResponse;
 import com.example.campushub.responses.profiles.InformationResponse;
@@ -46,7 +47,6 @@ public class UserProfileController {
                 .fullname(currentUser.getFullName())
                 .avatarUrl(currentUser.getAvatarUrl())
                 .dateOfBirth(currentUser.getDateOfBirth())
-                .phone(currentUser.getPhone())
                 .gender(currentUser.getGender() != null ? currentUser.getGender() : false)
                 .email(currentUser.getEmail())
                 .bio(currentUser.getBio())
@@ -62,6 +62,7 @@ public class UserProfileController {
     public ResponseEntity<?> getUserProfile(@AuthenticationPrincipal User currentUser, @PathVariable String userId) throws Exception {
         User userProfile = userService.getUserById(userId);
         List<TopicResponse> topics = userService.getUserTopics(userProfile);
+        List<GroupResponse> groups = userService.getJoinedGroups(userProfile);
         FollowStats followCounts = followService.countFollowersAndFollowing(userId);
         Boolean isFollowing = followService.checkIfFollowing(currentUser.getId(), userProfile.getId());
         return ResponseEntity.ok().body(ApiResponse.ok(AnotherUserResponse.builder()
@@ -74,6 +75,8 @@ public class UserProfileController {
                 .followersCount(followCounts.followersCount())
                 .followingCount(followCounts.followingCount())
                 .topics(topics)
+                .groups(groups)
+                .createdAt(userProfile.getCreatedAt())
                 .build()));
     }
 

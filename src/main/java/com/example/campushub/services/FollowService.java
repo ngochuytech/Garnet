@@ -1,5 +1,6 @@
 package com.example.campushub.services;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -39,6 +40,8 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class FollowService {
+    private static final int WHO_TO_FOLLOW_LIMIT = 5;
+
     private final UserNeo4jRepository userNeo4jRepository;
     private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
@@ -98,7 +101,7 @@ public class FollowService {
             RestTemplate restTemplate = new RestTemplate();
             UriComponentsBuilder uriBuilder = UriComponentsBuilder
                     .fromUriString("http://localhost:8000/recommend/{userId}")
-                    .queryParam("top_k", 5)
+                    .queryParam("top_k", WHO_TO_FOLLOW_LIMIT)
                     .queryParam("exclude", "all");
 
             if (followedIds != null && !followedIds.isEmpty()) {
@@ -109,29 +112,29 @@ public class FollowService {
             AiRecommendationResponse aiResponse = restTemplate.getForObject(aiUrl, AiRecommendationResponse.class);
             if (aiResponse != null && "success".equals(aiResponse.getStatus()) && aiResponse.getRecommendations() != null) {
                 suggestedIds = aiResponse.getRecommendations().stream()
-                        .map(this::resolveBackendUserId)
+                        .map(AiRecommendationResponse.Recommendation::getUserId)
                         .filter(Objects::nonNull)
                         .filter(id -> !id.isBlank())
                         .distinct()
                         .toList();
                 
                 for (AiRecommendationResponse.Recommendation rec : aiResponse.getRecommendations()) {
-                    String backendUserId = resolveBackendUserId(rec);
-                    if (backendUserId != null && !backendUserId.isBlank()) {
-                        aiRecMap.put(backendUserId, rec);
+                    String recommendationUserId = rec.getUserId();
+                    if (recommendationUserId != null && !recommendationUserId.isBlank()) {
+                        aiRecMap.put(recommendationUserId, rec);
                     }
                 }
 
-                if (suggestedIds.isEmpty()) {
-                    suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
+                if (suggestedIds.size() < WHO_TO_FOLLOW_LIMIT) {
+                    suggestedIds = mergeSuggestionIds(suggestedIds, userNeo4jRepository.getRandomSuggestedUser(userId));
                 }
             } else {
                 suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
             }
         } catch (Exception e) {
             suggestedIds = userNeo4jRepository.getSuggestedUserByHooby(userId);
-            if (suggestedIds == null || suggestedIds.isEmpty() || suggestedIds.size() < 5) {
-                suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
+            if (suggestedIds == null || suggestedIds.size() < WHO_TO_FOLLOW_LIMIT) {
+                suggestedIds = mergeSuggestionIds(suggestedIds, userNeo4jRepository.getRandomSuggestedUser(userId));
             }
         }
         
@@ -152,22 +155,65 @@ public class FollowService {
                     
                     AiRecommendationResponse.Recommendation rec = aiRecMap.get(user.getId());
                     if (rec != null) {
-                        builder.commonInterests(rec.getCommonInterests());
+                        builder.commonInterests(rec.getCommonInterests())
+                                .reason(buildSuggestionReasons(rec));
                     }
                     return builder.build();
                 })
                 .collect(Collectors.toList());
     }
 
-    private String resolveBackendUserId(AiRecommendationResponse.Recommendation recommendation) {
+    List<String> mergeSuggestionIds(List<String> primaryIds, List<String> fallbackIds) {
+        List<String> mergedIds = new ArrayList<>();
+        addSuggestionIds(mergedIds, primaryIds);
+        if (mergedIds.size() < WHO_TO_FOLLOW_LIMIT) {
+            addSuggestionIds(mergedIds, fallbackIds);
+        }
+        return mergedIds.size() > WHO_TO_FOLLOW_LIMIT
+                ? mergedIds.subList(0, WHO_TO_FOLLOW_LIMIT)
+                : mergedIds;
+    }
+
+    private void addSuggestionIds(List<String> targetIds, List<String> sourceIds) {
+        if (sourceIds == null || sourceIds.isEmpty()) {
+            return;
+        }
+        for (String id : sourceIds) {
+            if (id != null && !id.isBlank() && !targetIds.contains(id)) {
+                targetIds.add(id);
+            }
+            if (targetIds.size() == WHO_TO_FOLLOW_LIMIT) {
+                return;
+            }
+        }
+    }
+
+    List<String> buildSuggestionReasons(AiRecommendationResponse.Recommendation recommendation) {
         if (recommendation == null) {
-            return null;
+            return Collections.emptyList();
         }
-        String backendUserId = recommendation.getBackendUserId();
-        if (backendUserId != null && !backendUserId.isBlank()) {
-            return backendUserId;
+
+        List<String> reasons = new ArrayList<>();
+        List<String> commonInterests = recommendation.getCommonInterests();
+        if (commonInterests != null) {
+            commonInterests.stream()
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(interest -> !interest.isEmpty())
+                    .forEach(reasons::add);
         }
-        return recommendation.getUserId();
+
+        AiRecommendationResponse.Features features = recommendation.getFeatures();
+        if (features == null) {
+            return reasons;
+        }
+        if (Boolean.TRUE.equals(features.getSameMajor())) {
+            reasons.add("Cùng ngành");
+        }
+        if (Boolean.TRUE.equals(features.getSameGroup())) {
+            reasons.add("Cùng nhóm");
+        }
+        return reasons;
     }
 
     public Page<FollowResponse> searchUsers(String userId, String query, Pageable pageable) {

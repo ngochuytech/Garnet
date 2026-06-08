@@ -8,10 +8,12 @@ import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReportStatus;
 import com.example.campushub.enums.ReportType;
 import com.example.campushub.enums.UserRole;
+import com.example.campushub.enums.UserStatus;
 import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.ForbiddenAccessException;
 import com.example.campushub.exceptions.InvalidContentStateException;
+import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.GroupMemberId;
@@ -21,6 +23,7 @@ import com.example.campushub.models.neo4j.GroupNode;
 import com.example.campushub.repositories.jpa.GroupMemberRepository;
 import com.example.campushub.repositories.jpa.GroupRepository;
 import com.example.campushub.repositories.jpa.ReportRepository;
+import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.GroupNeo4jRepository;
 import com.example.campushub.responses.GroupMemberResponse;
 import com.example.campushub.responses.GroupResponse;
@@ -47,6 +50,7 @@ public class GroupService {
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final ReportRepository reportRepository;
+    private final UserRepository userRepository;
     private final GroupNeo4jRepository groupNeo4jRepository;
     private final FileUploadService fileUploadService;
     private final ApplicationEventPublisher eventPublisher;
@@ -113,13 +117,19 @@ public class GroupService {
                 "Định hướng nghề nghiệp",
                 "Sức khỏe tinh thần",
                 "Môi trường xanh");
+        List<User> activeUsers = userRepository.findByStatus(UserStatus.ACTIVE);
+        if (activeUsers.isEmpty()) {
+            throw new InvalidParamException("Cannot seed groups because no active users exist");
+        }
+
         int successCount = 0;
         for (int i = 0; i < count; i++) {
             try {
+                User leader = randomElement(activeUsers);
                 String randomSeed = faker.internet().uuid();
                 String groupType = faker.options().nextElement(groupTypes);
                 String topic = faker.options().nextElement(topics);
-                String groupName = groupType + " " + topic + " " + randomSeed.substring(0, 8);
+                String groupName = groupType + " " + topic;
                 if (groupRepository.existsByNameIgnoreCase(groupName)) {
                     continue;
                 }
@@ -145,15 +155,15 @@ public class GroupService {
                             .name(group.getName())
                             .build();
                     groupNeo4jRepository.save(groupNode);
-                    groupNeo4jRepository.addUserToGroup(user.getId(), group.getId());
+                    groupNeo4jRepository.addUserToGroup(leader.getId(), group.getId());
                 } catch (Exception e) {
                     throw new RuntimeException("Tạo nhóm thất bại tại Neo4j", e);
                 }
 
                 GroupMember leaderMember = GroupMember.builder()
-                        .id(new GroupMemberId(group.getId(), user.getId()))
+                        .id(new GroupMemberId(group.getId(), leader.getId()))
                         .group(group)
-                        .user(user)
+                        .user(leader)
                         .role(MemberRole.LEADER)
                         .status(MemberStatus.APPROVED)
                         .joinedAt(LocalDateTime.now())
@@ -699,5 +709,9 @@ public class GroupService {
                 .message(message)
                 .build();
         eventPublisher.publishEvent(event);
+    }
+
+    private <T> T randomElement(List<T> values) {
+        return values.get(faker.random().nextInt(values.size()));
     }
 }

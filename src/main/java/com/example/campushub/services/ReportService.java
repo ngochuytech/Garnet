@@ -308,17 +308,6 @@ public class ReportService {
                 .map(AdminReportResponse::fromEntity);
     }
 
-    public PagedResponse<AdminReportResponse> getWeeklyReports(Pageable pageable) throws Exception {
-        LocalDate today = LocalDate.now();
-        LocalDate monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-        LocalDateTime start = monday.atStartOfDay();
-        LocalDateTime end = LocalDateTime.now();
-
-        Page<Report> page = reportRepository.findByCreatedAtBetween(start, end, pageable);
-        Page<AdminReportResponse> mapped = page.map(AdminReportResponse::fromEntity);
-        return PagedResponse.from(mapped);
-    }
-
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void reportPostByAdmin(User admin, String postId, AdminReportDTO dto) throws Exception {
         Post post = postRepository.findById(postId)

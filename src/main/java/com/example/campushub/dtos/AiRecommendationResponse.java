@@ -17,8 +17,6 @@ public class AiRecommendationResponse {
     private String requestedUserId;
     @JsonProperty("target_user_id")
     private String targetUserId;
-    @JsonProperty("target_backend_user_id")
-    private String targetBackendUserId;
     @JsonProperty("target_han_user_id")
     private Integer targetHanUserId;
     @JsonProperty("top_k")
@@ -39,8 +37,6 @@ public class AiRecommendationResponse {
         private Integer rank;
         @JsonProperty("user_id")
         private String userId;
-        @JsonProperty("backend_user_id")
-        private String backendUserId;
         @JsonProperty("han_user_id")
         private Integer hanUserId;
         private Double score;

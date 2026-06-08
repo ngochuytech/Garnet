@@ -13,5 +13,5 @@ import lombok.Setter;
 @Builder
 public class AdminTopicDistributionResponse {
     private String label;
-    private long value;
+    private double value;
 }

@@ -32,6 +32,10 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
                      "RETURN u")
        List<UserNode> updateUserTags(@Param("userId") String userId, @Param("tags") Set<String> tags);
 
+       @Query("MATCH (:User {id: $userId})-[:INTERESTED_IN]->(t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) " +
+                     "RETURN t.name")
+       Set<String> findUserInterestNames(@Param("userId") String userId);
+
        // 3. Xóa các topic cũ đang liên kết mà không có trong danh sách mới
        @Query("MATCH (u:User {id: $userId})-[r:INTERESTED_IN]->(t:Interest) " +
                      "WHERE NOT t.name IN CASE WHEN $topics IS NULL THEN [] ELSE $topics END " +
@@ -39,7 +43,7 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
        void removeOldTopics(@Param("userId") String userId, @Param("topics") Set<String> topics);
 
        // 4. Thêm các topic mới
-       @Query("MATCH (u:User {id: $userId}) " +
+       @Query("MERGE (u:User {id: $userId}) " +
                      "UNWIND CASE WHEN $topics IS NULL THEN [] ELSE $topics END AS topicName " +
                      "MATCH (newTag:Interest {name: topicName})-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) " +
                      "MERGE (u)-[:INTERESTED_IN]->(newTag)")

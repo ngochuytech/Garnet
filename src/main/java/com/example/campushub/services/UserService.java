@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,16 +16,21 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.dtos.users.UpdateInformationDTO;
+import com.example.campushub.enums.GroupStatus;
+import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.enums.UserRole;
 import com.example.campushub.enums.UserStatus;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.ForbiddenAccessException;
 import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.GroupMemberRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.MajorNeo4jRepository;
 import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
+import com.example.campushub.responses.GroupResponse;
 import com.example.campushub.responses.TopicResponse;
 import com.example.campushub.responses.admin.AdminUserResponse;
 
@@ -39,6 +43,7 @@ public class UserService {
 
     private final PasswordEncoder passwordEncoder;
     private final UserRepository userRepository;
+    private final GroupMemberRepository groupMemberRepository;
     private final UserNeo4jRepository userNeo4jRepository;
     private final MajorNeo4jRepository majorNeo4jRepository;
     private final InterestNeo4jRepository interestNeo4jRepository;
@@ -72,7 +77,6 @@ public class UserService {
         }
         user.setFullName(dto.getFullname());
         user.setDateOfBirth(dto.getDateOfBirth());
-        user.setPhone(dto.getPhone());
         if (dto.getGender().equals("Nam"))
             user.setGender(true);
         else if (dto.getGender().equals("Nữ"))
@@ -102,7 +106,6 @@ public class UserService {
 
     public void setupUserProfile(User user, String major, Set<String> hobbies) {
         user.setDepartment(major);
-        user.setInterests(hobbies);
         user = userRepository.save(user);
 
         try {
@@ -115,7 +118,6 @@ public class UserService {
         } catch (Exception e) {
             // Rollback thủ công trên JPA nếu thao tác trên Neo4j thất bại
             user.setDepartment(null);
-            user.setInterests(null);
             userRepository.save(user);
             throw new RuntimeException("Cập nhật hồ sơ thất bại tại Neo4j", e);
         }
@@ -143,28 +145,38 @@ public class UserService {
 
     @Transactional("neo4jTransactionManager")
     public void updateTopicUser(User user, Set<String> topic) {
-        Set<String> oldTopics = user.getInterests();
         boolean isNull = topic == null || topic.isEmpty();
         
         Set<String> newTopics = isNull ? Set.of() : topic;
-        user.setInterests(newTopics);
-        user = userRepository.save(user);
 
-        try {
-            userNeo4jRepository.removeOldTopics(user.getId(), newTopics);
-            if (!newTopics.isEmpty()) {
-                userNeo4jRepository.addNewTopics(user.getId(), newTopics);
-            }
-        } catch (Exception e) {
-            // Rollback thủ công trên JPA nếu thao tác trên Neo4j thất bại
-            user.setInterests(oldTopics);
-            userRepository.save(user);
-            throw new RuntimeException("Cập nhật Topic thất bại tại Neo4j", e);
+        userNeo4jRepository.removeOldTopics(user.getId(), newTopics);
+        if (!newTopics.isEmpty()) {
+            userNeo4jRepository.addNewTopics(user.getId(), newTopics);
         }
     }
 
     public List<TopicResponse> getUserTopics(User user) {
         return interestNeo4jRepository.getTopicUserCounts(user.getId());
+    }
+
+    public List<GroupResponse> getJoinedGroups(User user) {
+        if (user == null || user.getId() == null) {
+            return List.of();
+        }
+
+        List<GroupMember> memberships = groupMemberRepository
+                .findByUser_IdAndStatus(user.getId(), MemberStatus.APPROVED)
+                .stream()
+                .filter(member -> member.getGroup() != null)
+                .filter(member -> member.getGroup().getStatus() == GroupStatus.ACTIVE)
+                .toList();
+        if (memberships.isEmpty()) {
+            return List.of();
+        }
+
+        return memberships.stream()
+                .map(member -> GroupResponse.fromGroup(member.getGroup(), member))
+                .toList();
     }
 
     // --- ADMIN ---
@@ -210,7 +222,7 @@ public class UserService {
             try {
                 String fullName = faker.name().fullName();
                 String email = faker.internet().emailAddress();
-                String password = "password123"; // Mật khẩu mặc định cho người dùng giả
+                String password = "password123";
                 boolean isGenderMale = faker.bool().bool();
                 LocalDate dateOfBirth = faker.date().birthdayLocalDate(19, 26);
                 String randomSeed = faker.internet().uuid();
@@ -228,7 +240,6 @@ public class UserService {
                 user.setDateOfBirth(dateOfBirth);
                 user.setAvatarUrl(avatarUrl);
                 user.setDepartment(randomDept);
-                user.setInterests(Set.copyOf(randomPicksTag));
                 user.setStatus(UserStatus.ACTIVE);
 
                 user.setCreatedAt(LocalDateTime.now().minusMonths(1));

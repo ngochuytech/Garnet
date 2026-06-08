@@ -18,7 +18,5 @@ public class UpdateInformationDTO {
 
     private LocalDate dateOfBirth;
 
-    private String phone;
-
     private String gender;
 }

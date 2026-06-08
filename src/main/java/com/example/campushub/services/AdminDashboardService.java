@@ -7,7 +7,6 @@ import java.time.YearMonth;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -117,102 +116,45 @@ public class AdminDashboardService {
             return Collections.emptyList();
         }
 
-        long total = rawDistribution.stream()
-                .map(topic -> topic.value())
-                .filter(value -> value != null)
-                .mapToLong(Long::longValue)
+        List<TopicDistributionProjection> positiveDistribution = rawDistribution.stream()
+                .filter(topic -> topic.value() != null && topic.value() > 0)
+                .collect(Collectors.toList());
+
+        if (positiveDistribution.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        long total = positiveDistribution.stream()
+                .mapToLong(TopicDistributionProjection::value)
                 .sum();
 
-        if (total == 0) {
-            return Collections.emptyList();
-        }
-
         List<TopicShare> items = new ArrayList<>();
-        int limit = Math.min(4, rawDistribution.size());
+        int limit = Math.min(5, positiveDistribution.size());
         for (int index = 0; index < limit; index++) {
-            TopicDistributionProjection projection = rawDistribution.get(index);
-            items.add(new TopicShare(projection.label(), projection.value() == null ? 0L : projection.value()));
+            TopicDistributionProjection projection = positiveDistribution.get(index);
+            items.add(new TopicShare(projection.label(), projection.value()));
         }
 
-        if (rawDistribution.size() > 4) {
-            long othersCount = rawDistribution.subList(4, rawDistribution.size()).stream()
-                    .map(distribution -> distribution.value())
-                    .filter(value -> value != null)
-                    .mapToLong(Long::longValue)
-                    .sum();
-            items.add(new TopicShare("Khác", othersCount));
-        }
-
-        return allocatePercentages(items);
+        return calculateActualPercentages(items, total);
     }
 
-    private List<AdminTopicDistributionResponse> allocatePercentages(List<TopicShare> items) {
-        long total = items.stream().mapToLong(TopicShare::count).sum();
+    private List<AdminTopicDistributionResponse> calculateActualPercentages(List<TopicShare> items, long total) {
         if (total == 0) {
             return Collections.emptyList();
         }
 
-        List<AllocatedTopicShare> allocated = items.stream()
-                .map(item -> {
-                    double exact = item.count() * 100.0 / total;
-                    long floor = (long) Math.floor(exact);
-                    double fraction = exact - floor;
-                    return new AllocatedTopicShare(item.label(), item.count(), floor, fraction);
-                })
-                .collect(Collectors.toCollection(ArrayList::new));
-
-        long assigned = allocated.stream().mapToLong(AllocatedTopicShare::percent).sum();
-        long remaining = 100 - assigned;
-
-        allocated.sort(Comparator.comparingDouble(AllocatedTopicShare::fraction).reversed()
-                .thenComparingLong(AllocatedTopicShare::count).reversed());
-
-        for (int index = 0; index < remaining && index < allocated.size(); index++) {
-            allocated.get(index).addOne();
-        }
-
-        return allocated.stream()
+        return items.stream()
                 .map(item -> AdminTopicDistributionResponse.builder()
                         .label(item.label())
-                        .value(item.percent())
+                        .value(roundToTwoDecimals(item.count() * 100.0 / total))
                         .build())
                 .collect(Collectors.toList());
     }
 
-    private record TopicShare(String label, long count) {
+    private double roundToTwoDecimals(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 
-    private static final class AllocatedTopicShare {
-        private final String label;
-        private final long count;
-        private long percent;
-        private final double fraction;
-
-        private AllocatedTopicShare(String label, long count, long percent, double fraction) {
-            this.label = label;
-            this.count = count;
-            this.percent = percent;
-            this.fraction = fraction;
-        }
-
-        private String label() {
-            return label;
-        }
-
-        private long count() {
-            return count;
-        }
-
-        private long percent() {
-            return percent;
-        }
-
-        private double fraction() {
-            return fraction;
-        }
-
-        private void addOne() {
-            this.percent++;
-        }
+    private record TopicShare(String label, long count) {
     }
 }

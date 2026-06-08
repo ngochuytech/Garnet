@@ -32,4 +32,7 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, GroupM
 
     @EntityGraph(attributePaths = "user")
     List<GroupMember> findByGroup_IdInAndRoleAndStatus(Collection<String> groupIds, MemberRole role, MemberStatus status);
+
+    @EntityGraph(attributePaths = "group")
+    List<GroupMember> findByUser_IdAndStatus(String userId, MemberStatus status);
 }

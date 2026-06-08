@@ -2,6 +2,7 @@ package com.example.campushub.services;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -58,6 +59,7 @@ import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.repositories.jpa.GroupRepository;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
 import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
+import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
 import com.example.campushub.responses.PostResponse;
 import com.example.campushub.responses.admin.AdminPostResponse;
 
@@ -75,6 +77,7 @@ public class PostService {
     private final PostRepository postRepository;
     private final PostNeo4jRepository postNeo4jRepository;
     private final InterestNeo4jRepository tagNeo4jRepository;
+    private final UserNeo4jRepository userNeo4jRepository;
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
@@ -172,9 +175,11 @@ public class PostService {
             Post post = null;
             try {
                 User author = randomElement(users);
-                Set<String> postTags = pickRandomTags(author.getInterests().stream()
-                        .filter(validTags::contains)
-                        .collect(Collectors.toList()), 2, 6);
+                List<String> authorInterests = findValidUserInterestNames(author.getId(), validTags);
+                if (authorInterests.isEmpty()) {
+                    continue;
+                }
+                Set<String> postTags = pickRandomTags(authorInterests, 2, 6);
                 Group group = includeGroups ? pickRandomApprovedGroup(author) : null;
                 String seed = faker.internet().uuid();
 
@@ -207,8 +212,17 @@ public class PostService {
     }
 
     private boolean hasSeedableInterests(User user, Set<String> validTags) {
-        return user.getInterests() != null
-                && user.getInterests().stream().anyMatch(validTags::contains);
+        return !findValidUserInterestNames(user.getId(), validTags).isEmpty();
+    }
+
+    private List<String> findValidUserInterestNames(String userId, Set<String> validTags) {
+        Set<String> interests = findUserInterestNames(userId);
+        if (interests.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return interests.stream()
+                .filter(validTags::contains)
+                .collect(Collectors.toList());
     }
 
     private void seedPostReactions(Post post, List<User> users, int maxReactions) {
@@ -586,7 +600,7 @@ public class PostService {
     }
 
     private List<String> buildHomeFeedRankedPostIds(User user) {
-        Set<String> interests = user.getInterests();
+        Set<String> interests = findUserInterestNames(user.getId());
         // TH: người dùng ko có sở thích
         if (interests == null || interests.isEmpty()) {
             Pageable candidatePage = PageRequest.of(
@@ -604,10 +618,8 @@ public class PostService {
             return Collections.emptyList();
         }
 
-        LocalDateTime thirtyDaysAgo = LocalDateTime.now().minusDays(30);
-
         // Lấy thông tin Post từ MySQL để tính điểm
-        List<Post> relevantPosts = postRepository.findActivePostsByIdsAndDateAfter(postIds, thirtyDaysAgo);
+        List<Post> relevantPosts = postRepository.findByIdInAndStatus(postIds, ContentStatus.ACTIVE);
 
         relevantPosts.sort((p1, p2) -> {
             double score1 = calculateHackerNewsScore(p1);
@@ -621,7 +633,7 @@ public class PostService {
     }
 
     private String buildHomeFeedCacheKey(User user) {
-        Set<String> interests = user.getInterests();
+        Set<String> interests = findUserInterestNames(user.getId());
         String interestFingerprint = "none";
         if (interests != null && !interests.isEmpty()) {
             interestFingerprint = Integer.toHexString(interests.stream()
@@ -630,6 +642,14 @@ public class PostService {
                     .hashCode());
         }
         return "campushub:home-feed:" + user.getId() + ":" + interestFingerprint;
+    }
+
+    private Set<String> findUserInterestNames(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return Set.of();
+        }
+        Set<String> interests = userNeo4jRepository.findUserInterestNames(userId);
+        return interests == null ? Set.of() : interests;
     }
 
     private List<String> getCachedHomeFeedPostIds(String cacheKey) {
@@ -661,7 +681,7 @@ public class PostService {
         
         int E = likes + (comments * 3) - (dislikes * 2);
         
-        long hoursBetween = java.time.temporal.ChronoUnit.HOURS.between(post.getCreatedAt(), LocalDateTime.now());
+        long hoursBetween = ChronoUnit.HOURS.between(post.getCreatedAt(), LocalDateTime.now());
         double T = Math.max(hoursBetween, 0.0);
         double G = 1.8;
         

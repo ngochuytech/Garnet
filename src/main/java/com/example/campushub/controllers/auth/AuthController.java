@@ -20,6 +20,7 @@ import com.example.campushub.components.JwtTokenProvider;
 import com.example.campushub.dtos.GoogleCodeRequest;
 import com.example.campushub.dtos.auth.LoginDTO;
 import com.example.campushub.dtos.auth.RegisterDTO;
+import com.example.campushub.dtos.auth.ResetPasswordDTO;
 import com.example.campushub.models.jpa.Token;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
@@ -140,6 +141,18 @@ public class AuthController {
                 .build();
 
         return ResponseEntity.ok(new ApiResponse<>(true, loginResponse, null));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<?> forgotPassword(@RequestParam String email) throws Exception {
+        authService.forgotPassword(email);
+        return ResponseEntity.ok(ApiResponse.ok("Đã gửi email đặt lại mật khẩu!"));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(@RequestBody @Valid ResetPasswordDTO dto) throws Exception {
+        authService.resetPassword(dto);
+        return ResponseEntity.ok(ApiResponse.ok("Đặt lại mật khẩu thành công!"));
     }
 
     @GetMapping("/social-login/google")

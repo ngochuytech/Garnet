@@ -3,7 +3,6 @@ package com.example.campushub.models.jpa;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
-import java.util.Set;
 
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -13,17 +12,13 @@ import com.example.campushub.enums.UserRole;
 import com.example.campushub.enums.UserStatus;
 import com.example.campushub.models.BaseEntity;
 
-import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
-import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -55,9 +50,6 @@ public class User extends BaseEntity implements UserDetails {
     @Column(name = "password", length = 255, nullable = false)
     private String password;
 
-    @Column(name = "phone", length = 255)
-    private String phone;
-
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
@@ -72,14 +64,6 @@ public class User extends BaseEntity implements UserDetails {
 
     @Column(name = "gender", nullable = false)
     private Boolean gender;
-
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(
-        name = "user_interests",
-        joinColumns = @JoinColumn(name = "user_id")
-    )
-    @Column(name = "interest_name")
-    private Set<String> interests;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status")

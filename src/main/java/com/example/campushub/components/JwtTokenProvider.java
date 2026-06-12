@@ -121,6 +121,8 @@ public class JwtTokenProvider {
             String subject = claims.getSubject();
             if (user.getStatus().equals(UserStatus.INACTIVE)) {
                 throw new UnauthorizedException("Tài khoản đã bị vô hiệu hóa");
+            } else if (user.getStatus().equals(UserStatus.BANNED)) {
+                throw new UnauthorizedException("Tài khoản đã bị cấm");
             }
             Date expiration = claims.getExpiration();
             if (expiration == null || expiration.before(new Date())) {

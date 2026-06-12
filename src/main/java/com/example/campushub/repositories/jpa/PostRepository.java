@@ -42,6 +42,9 @@ public interface PostRepository extends JpaRepository<Post, String> {
 
         List<Post> findByIdInAndStatus(List<String> ids, ContentStatus status);
 
+        @Query("SELECT imageUrl FROM Post p JOIN p.images imageUrl WHERE p.id = :postId")
+        List<String> findImageUrlsByPostId(@Param("postId") String postId);
+
         @Modifying
         @Query("UPDATE Post p SET p.commentCount = p.commentCount + 1 WHERE p.id = :postId")
         void incrementCommentCount(@Param("postId") String postId);

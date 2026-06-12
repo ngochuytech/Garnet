@@ -1,9 +1,5 @@
 package com.example.campushub.services;
 
-import java.time.DayOfWeek;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 
 import org.springframework.context.ApplicationEventPublisher;
@@ -42,7 +38,6 @@ import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.ReportRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
-import com.example.campushub.responses.PagedResponse;
 import com.example.campushub.responses.ReportResponse;
 import com.example.campushub.responses.admin.AdminReportResponse;
 
@@ -169,6 +164,12 @@ public class ReportService {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
         return report;
+    }
+
+    public ReportResponse getReportDetailResponse(String reportId) throws Exception {
+        Report report = reportRepository.findById(reportId)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
+        return ReportResponse.fromEntity(report, getReportedContentImages(report));
     }
 
     public Page<ReportResponse> getReports(String status, String type, Pageable pageable) throws Exception {
@@ -432,6 +433,13 @@ public class ReportService {
                 + "\nMô tả: " + (group.getDescription() != null ? group.getDescription() : "")
                 + "\nSố thành viên: " + group.getMemberCount()
                 + "\nTrạng thái: " + group.getStatus();
+    }
+
+    private List<String> getReportedContentImages(Report report) {
+        if (report == null || report.getTargetType() != ReportType.POST || report.getTargetId() == null) {
+            return List.of();
+        }
+        return postRepository.findImageUrlsByPostId(report.getTargetId());
     }
 
 }

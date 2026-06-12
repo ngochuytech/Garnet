@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.campushub.dtos.admin.AdminReportDTO;
-import com.example.campushub.models.jpa.Report;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.PagedResponse;
@@ -53,8 +52,7 @@ public class AdminReportController {
     @GetMapping("/{reportId}")
     public ResponseEntity<?> getReportDetail(@AuthenticationPrincipal User currentUser,
             @PathVariable String reportId) throws Exception {
-        Report report = reportService.getReportDetail(reportId);
-        return ResponseEntity.ok(ApiResponse.ok(ReportResponse.fromEntity(report)));
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getReportDetailResponse(reportId)));
     }
 
     @GetMapping("/search")

@@ -6,13 +6,13 @@ import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.projections.CommentReplyCountProjection;
 import com.example.campushub.repositories.jpa.projections.PostCountProjection;
 
 public interface CommentRepository extends JpaRepository<Comment, String> {
@@ -34,9 +34,15 @@ public interface CommentRepository extends JpaRepository<Comment, String> {
     List<Comment> findByParentComment_IdAndStatusAndCreatedAtGreaterThanOrderByCreatedAtAsc(
             String parentId, ContentStatus status, LocalDateTime createdAt, Pageable pageable);
 
-    @Modifying
-    @Query("UPDATE Comment c SET c.replyCount = c.replyCount + 1 WHERE c.id = :commentId")
-    void incrementReplyCount(@Param("commentId") String commentId);
+    @Query("SELECT c.parentComment.id AS commentId, COUNT(c) AS count " +
+            "FROM Comment c " +
+            "WHERE c.parentComment.id IN :commentIds AND c.status = :status " +
+            "GROUP BY c.parentComment.id")
+    List<CommentReplyCountProjection> countRepliesByCommentIdsAndStatus(
+            @Param("commentIds") List<String> commentIds,
+            @Param("status") ContentStatus status);
+
+    long countByParentComment_IdAndStatus(String commentId, ContentStatus status);
 
     @Query("SELECT c.post.id AS postId, COUNT(c) AS count " +
             "FROM Comment c " +

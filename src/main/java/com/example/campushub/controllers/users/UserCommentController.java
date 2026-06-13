@@ -42,9 +42,13 @@ public class UserCommentController {
         Slice<Comment> comments = commentService.getCommentsByPostId(postId, lastCommentId, limit);
 
         Map<String, String> userReactionsMap = commentService.getUserReactionsMap(user, postId);
+        Map<String, Integer> replyCounts = commentService.getReplyCountsMap(comments.getContent());
 
         Slice<CommentResponse> responseSlice = comments
-            .map(comment -> CommentResponse.fromComment(comment, userReactionsMap));
+            .map(comment -> CommentResponse.fromComment(
+                    comment,
+                    userReactionsMap,
+                    replyCounts.getOrDefault(comment.getId(), 0)));
         return ResponseEntity.ok().body(ApiResponse.ok(PagedResponse.from(responseSlice)));
     }
 
@@ -55,9 +59,13 @@ public class UserCommentController {
         List<Comment> comments = commentService.getCommentReplies(commentId, lastCommentId, limit);
 
         Map<String, String> userReactionsMap = commentService.getUserReactionsMapForComments(user, comments);
+        Map<String, Integer> replyCounts = commentService.getReplyCountsMap(comments);
 
         List<CommentResponse> commentResponses = comments.stream()
-                .map(comment -> CommentResponse.fromComment(comment, userReactionsMap))
+                .map(comment -> CommentResponse.fromComment(
+                        comment,
+                        userReactionsMap,
+                        replyCounts.getOrDefault(comment.getId(), 0)))
                 .toList();
         return ResponseEntity.ok().body(ApiResponse.ok(commentResponses));
     }

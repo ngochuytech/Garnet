@@ -242,7 +242,6 @@ public class ReportService {
                     .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận liên quan!"));
             if (comment.getStatus() == ContentStatus.ACTIVE) {
                 hideActiveCommentTree(comment);
-                decrementParentReplyCounter(comment);
             }
 
             if (!isReporterAdmin) {
@@ -407,15 +406,6 @@ public class ReportService {
 
         comment.setStatus(ContentStatus.HIDDEN);
         commentRepository.save(comment);
-    }
-
-    private void decrementParentReplyCounter(Comment comment) {
-        Comment parentComment = comment.getParentComment();
-        if (parentComment != null && parentComment.getStatus() == ContentStatus.ACTIVE) {
-            int replyCount = parentComment.getReplyCount() != null ? parentComment.getReplyCount() : 0;
-            parentComment.setReplyCount(Math.max(0, replyCount - 1));
-            commentRepository.save(parentComment);
-        }
     }
 
     private ReportResponse toReportResponse(Report report) {

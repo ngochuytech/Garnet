@@ -41,7 +41,10 @@ public class CommentResponse {
         private String department;
     }
 
-    public static CommentResponse fromComment(Comment comment, Map<String, String> userReactionsMap) {
+    public static CommentResponse fromComment(
+            Comment comment,
+            Map<String, String> userReactionsMap,
+            int replyCount) {
         String reactionStr = null;
         if (userReactionsMap != null && userReactionsMap.containsKey(comment.getId())) {
             reactionStr = userReactionsMap.get(comment.getId());
@@ -61,7 +64,7 @@ public class CommentResponse {
                         .department(comment.getUser().getDepartment())
                         .build())
                 .userReaction(reactionStr)
-                .replyCount(comment.getReplyCount())
+                .replyCount(replyCount)
                 .createdAt(comment.getCreatedAt())
                 .updatedAt(comment.getUpdatedAt())
                 .build();

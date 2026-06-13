@@ -24,9 +24,14 @@ import lombok.Setter;
 @Entity
 @Table(
         name = "comments",
-        indexes = @Index(
-                name = "idx_comments_post_status",
-                columnList = "post_id,status"))
+        indexes = {
+                @Index(
+                        name = "idx_comments_post_status",
+                        columnList = "post_id,status"),
+                @Index(
+                        name = "idx_comments_parent_status",
+                        columnList = "parent_id,status")
+        })
 @Getter
 @Setter
 @AllArgsConstructor
@@ -59,10 +64,6 @@ public class Comment extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id")
     private Comment parentComment;
-
-    @Column(name = "reply_count")
-    @Builder.Default
-    private Integer replyCount = 0;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)

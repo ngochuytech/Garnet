@@ -81,8 +81,8 @@ public class NotificationListener {
                             baseMessage = " đã bình luận về bài viết của bạn";
                             break;
                         case REPLY_COMMENT:
-                            totalCount = commentRepository.findById(event.getTargetId())
-                                    .map(c -> (long) c.getReplyCount()).orElse(1L);
+                            totalCount = commentRepository.countByParentComment_IdAndStatus(
+                                    event.getTargetId(), ContentStatus.ACTIVE);
                             baseMessage = " đã trả lời bình luận của bạn";
                             break;
                         case SHARE_POST:

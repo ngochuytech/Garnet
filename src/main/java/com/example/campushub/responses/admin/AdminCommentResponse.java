@@ -39,7 +39,7 @@ public class AdminCommentResponse {
         private String department;
     }
 
-    public static AdminCommentResponse fromEntity(Comment comment) {
+    public static AdminCommentResponse fromEntity(Comment comment, int replyCount) {
         return AdminCommentResponse.builder()
                 .id(comment.getId())
                 .postId(comment.getPost().getId())
@@ -53,7 +53,7 @@ public class AdminCommentResponse {
                         .avatar(comment.getUser().getAvatarUrl())
                         .department(comment.getUser().getDepartment())
                         .build())
-                .replyCount(comment.getReplyCount())
+                .replyCount(replyCount)
                 .createdAt(comment.getCreatedAt())
                 .updatedAt(comment.getUpdatedAt())
                 .build();

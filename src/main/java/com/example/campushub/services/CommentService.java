@@ -26,6 +26,7 @@ import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.CommentReactionRepository;
 import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
+import com.example.campushub.repositories.jpa.projections.CommentReplyCountProjection;
 import com.example.campushub.responses.admin.AdminCommentResponse;
 
 import lombok.RequiredArgsConstructor;
@@ -89,6 +90,23 @@ public class CommentService {
         return userReactionsMap;
     }
 
+    public Map<String, Integer> getReplyCountsMap(List<Comment> comments) {
+        Map<String, Integer> replyCounts = new HashMap<>();
+        if (comments == null || comments.isEmpty()) {
+            return replyCounts;
+        }
+
+        List<String> commentIds = comments.stream()
+                .map(Comment::getId)
+                .toList();
+        List<CommentReplyCountProjection> counts =
+                commentRepository.countRepliesByCommentIdsAndStatus(commentIds, ContentStatus.ACTIVE);
+        for (CommentReplyCountProjection count : counts) {
+            replyCounts.put(count.getCommentId(), count.getCount().intValue());
+        }
+        return replyCounts;
+    }
+
     @Transactional("transactionManager")
     public void createComment(User user, String postId, String parentId, String content) throws Exception {
         Post post = postService.getActivePostById(postId);
@@ -109,8 +127,7 @@ public class CommentService {
         if (parentId != null) {
             Comment parentComment = commentRepository.findById(parentId)
                     .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận mà bạn muốn phản hồi"));
-            commentRepository.incrementReplyCount(parentId);
-            
+
             comment.setParentComment(parentComment);
             
             recipientId = parentComment.getUser().getId();
@@ -241,7 +258,10 @@ public class CommentService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
 
-        return commentRepository.findByUser(user, pageable)
-                .map(AdminCommentResponse::fromEntity);
+        Page<Comment> comments = commentRepository.findByUser(user, pageable);
+        Map<String, Integer> replyCounts = getReplyCountsMap(comments.getContent());
+        return comments.map(comment -> AdminCommentResponse.fromEntity(
+                comment,
+                replyCounts.getOrDefault(comment.getId(), 0)));
     }
 }

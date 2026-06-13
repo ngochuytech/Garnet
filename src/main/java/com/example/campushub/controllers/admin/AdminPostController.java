@@ -1,5 +1,7 @@
 package com.example.campushub.controllers.admin;
 
+import java.util.Map;
+
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
@@ -62,7 +64,10 @@ public class AdminPostController {
             @RequestParam(required = false) String lastCommentId,
             @RequestParam(defaultValue = "10") int limit) throws Exception {
         Slice<Comment> comments = commentService.getCommentsByPostId(postId, lastCommentId, limit);
-        Slice<AdminCommentResponse> response = comments.map(AdminCommentResponse::fromEntity);
+        Map<String, Integer> replyCounts = commentService.getReplyCountsMap(comments.getContent());
+        Slice<AdminCommentResponse> response = comments.map(comment -> AdminCommentResponse.fromEntity(
+                comment,
+                replyCounts.getOrDefault(comment.getId(), 0)));
         return ResponseEntity.ok(PagedResponse.from(response));
     }
 

@@ -2,10 +2,9 @@ package com.example.campushub.responses.admin;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
+import com.example.campushub.dtos.record.posts.PostStats;
 import com.example.campushub.models.jpa.Post;
-import com.example.campushub.responses.PostResponse;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -61,10 +60,18 @@ public class AdminPostResponse {
         }
 
         public static AdminPostResponse fromEntity(Post post,List<String> tags) {
-                return fromEntity(post, tags, null);
+                return fromEntity(post, tags, null, PostStats.empty());
         }
 
         public static AdminPostResponse fromEntity(Post post, List<String> tags, List<String> sharedTags) {
+                return fromEntity(post, tags, sharedTags, PostStats.empty());
+        }
+
+        public static AdminPostResponse fromEntity(
+                        Post post,
+                        List<String> tags,
+                        List<String> sharedTags,
+                        PostStats stats) {
                 return AdminPostResponse.builder()
                                 .id(post.getId())
                                 .author(AuthorResponse.builder()
@@ -74,10 +81,10 @@ public class AdminPostResponse {
                                                 .department(post.getUser().getDepartment())
                                                 .build())
                                 .content(post.getContent())
-                                .likeCount(post.getLiked())
-                                .dislikeCount(post.getDisliked())
-                                .commentCount(post.getCommentCount())
-                                .shareCount(post.getSharedCount())
+                                .likeCount(stats.likeCount())
+                                .dislikeCount(stats.dislikeCount())
+                                .commentCount(stats.commentCount())
+                                .shareCount(stats.shareCount())
                                 .status(post.getStatus().name())
                                 .tags(tags)
                                 .images(post.getImages())

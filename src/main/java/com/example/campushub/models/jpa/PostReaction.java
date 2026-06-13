@@ -11,6 +11,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Index;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.MapsId;
 import jakarta.persistence.PrePersist;
@@ -21,7 +22,11 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "post_reactions")
+@Table(
+    name = "post_reactions",
+    indexes = @Index(
+        name = "idx_post_reactions_post_type",
+        columnList = "post_id,type"))
 @Data
 @AllArgsConstructor
 @NoArgsConstructor

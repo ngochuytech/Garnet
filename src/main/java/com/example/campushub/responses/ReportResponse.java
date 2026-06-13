@@ -1,8 +1,6 @@
 package com.example.campushub.responses;
 
 import java.time.LocalDateTime;
-import java.util.List;
-
 import com.example.campushub.enums.ReportStatus;
 import com.example.campushub.enums.ReportType;
 import com.example.campushub.models.jpa.Report;
@@ -26,8 +24,7 @@ public class ReportResponse {
     private String targetId;
     private String reason;
     private String description;
-    private String reportedContentSnapshot;
-    private List<String> reportedContentImages;
+    private ReportTargetResponse target;
     private ReportStatus status;
     private String adminNotes;
     private HandledByResponse handledBy;
@@ -68,10 +65,10 @@ public class ReportResponse {
     }
 
     public static ReportResponse fromEntity(Report report) {
-        return fromEntity(report, List.of());
+        return fromEntity(report, null);
     }
 
-    public static ReportResponse fromEntity(Report report, List<String> reportedContentImages) {
+    public static ReportResponse fromEntity(Report report, ReportTargetResponse target) {
         return ReportResponse.builder()
                 .id(report.getId())
                 .reporter(ReporterResponse.builder()
@@ -88,8 +85,7 @@ public class ReportResponse {
                 .targetId(report.getTargetId())
                 .reason(report.getReason())
                 .description(report.getDescription())
-                .reportedContentSnapshot(report.getReportedContentSnapshot())
-                .reportedContentImages(reportedContentImages != null ? reportedContentImages : List.of())
+                .target(target)
                 .status(report.getStatus())
                 .adminNotes(report.getAdminNote())
                 .handledBy(HandledByResponse.builder()

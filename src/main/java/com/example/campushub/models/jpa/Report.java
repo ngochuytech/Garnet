@@ -53,9 +53,6 @@ public class Report extends BaseEntity{
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    @Column(name = "reported_content_snapshot", columnDefinition = "TEXT")
-    private String reportedContentSnapshot;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private ReportStatus status;

@@ -1,11 +1,10 @@
 package com.example.campushub.responses.admin;
 
 import java.time.LocalDateTime;
-import java.util.List;
-
 import com.example.campushub.enums.ReportStatus;
 import com.example.campushub.enums.ReportType;
 import com.example.campushub.models.jpa.Report;
+import com.example.campushub.responses.ReportTargetResponse;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -26,8 +25,7 @@ public class AdminReportResponse {
     private String targetId;
     private String reason;
     private String description;
-    private String reportedContentSnapshot;
-    private List<String> reportedContentImages;
+    private ReportTargetResponse target;
     private ReportStatus status;
     private String adminNotes;
     private HandledByResponse handledBy;
@@ -68,10 +66,10 @@ public class AdminReportResponse {
     }
 
     public static AdminReportResponse fromEntity(Report report) {
-        return fromEntity(report, List.of());
+        return fromEntity(report, null);
     }
 
-    public static AdminReportResponse fromEntity(Report report, List<String> reportedContentImages) {
+    public static AdminReportResponse fromEntity(Report report, ReportTargetResponse target) {
         return AdminReportResponse.builder()
                 .id(report.getId())
                 .reporter(ReporterResponse.builder()
@@ -88,8 +86,7 @@ public class AdminReportResponse {
                 .targetId(report.getTargetId())
                 .reason(report.getReason())
                 .description(report.getDescription())
-                .reportedContentSnapshot(report.getReportedContentSnapshot())
-                .reportedContentImages(reportedContentImages != null ? reportedContentImages : List.of())
+                .target(target)
                 .status(report.getStatus())
                 .adminNotes(report.getAdminNote())
                 .handledBy(report.getResolvedBy() != null ? HandledByResponse.builder()

@@ -13,6 +13,7 @@ import org.springframework.data.repository.query.Param;
 import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.projections.PostCountProjection;
 
 public interface CommentRepository extends JpaRepository<Comment, String> {
     Page<Comment> findByUser(User user, Pageable pageable);
@@ -36,6 +37,16 @@ public interface CommentRepository extends JpaRepository<Comment, String> {
     @Modifying
     @Query("UPDATE Comment c SET c.replyCount = c.replyCount + 1 WHERE c.id = :commentId")
     void incrementReplyCount(@Param("commentId") String commentId);
+
+    @Query("SELECT c.post.id AS postId, COUNT(c) AS count " +
+            "FROM Comment c " +
+            "WHERE c.post.id IN :postIds AND c.status = :status " +
+            "GROUP BY c.post.id")
+    List<PostCountProjection> countByPostIdsAndStatus(
+            @Param("postIds") List<String> postIds,
+            @Param("status") ContentStatus status);
+
+    long countByPost_IdAndStatus(String postId, ContentStatus status);
 
     @Query("SELECT COUNT(c) FROM Comment c " +
             "WHERE c.createdAt >= :start AND c.createdAt < :end")

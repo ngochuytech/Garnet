@@ -1,7 +1,5 @@
 package com.example.campushub.controllers.admin;
 
-import java.util.List;
-
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
@@ -23,7 +21,6 @@ import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.PagedResponse;
 import com.example.campushub.responses.admin.AdminCommentResponse;
-import com.example.campushub.responses.admin.AdminPostResponse;
 import com.example.campushub.services.CommentService;
 import com.example.campushub.services.PostService;
 import com.example.campushub.services.ReportService;
@@ -57,8 +54,7 @@ public class AdminPostController {
     @GetMapping("/{postId}")
     public ResponseEntity<?> getPostDetail(@AuthenticationPrincipal User currentUser, @PathVariable String postId)
             throws Exception {
-        List<String> tags = postService.getTagsForPost(postId);
-        return ResponseEntity.ok(ApiResponse.ok(AdminPostResponse.fromEntity(postService.getPostById(postId), tags)));
+        return ResponseEntity.ok(ApiResponse.ok(postService.getAdminPostResponseById(postId)));
     }
 
     @GetMapping("/{postId}/comments")

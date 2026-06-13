@@ -39,6 +39,7 @@ import com.example.campushub.repositories.jpa.ReportRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
 import com.example.campushub.responses.ReportResponse;
+import com.example.campushub.responses.ReportTargetResponse;
 import com.example.campushub.responses.admin.AdminReportResponse;
 
 import lombok.RequiredArgsConstructor;
@@ -100,7 +101,6 @@ public class ReportService {
                 .reportedUser(post.getUser())
                 .reason(dto.getReason())
                 .description(dto.getDescription())
-                .reportedContentSnapshot(post.getContent())
                 .status(ReportStatus.OPEN)
                 .build();
 
@@ -126,7 +126,6 @@ public class ReportService {
                 .reportedUser(leader.getUser())
                 .reason(dto.getReason())
                 .description(dto.getDescription())
-                .reportedContentSnapshot(buildGroupSnapshot(group))
                 .status(ReportStatus.OPEN)
                 .build();
 
@@ -153,36 +152,39 @@ public class ReportService {
                 .reportedUser(comment.getUser())
                 .reason(dto.getReason())
                 .description(dto.getDescription())
-                .reportedContentSnapshot(comment.getContent())
                 .status(ReportStatus.OPEN)
                 .build();
 
         reportRepository.save(report);
     }
 
+    @Transactional(value = "transactionManager", readOnly = true)
     public Report getReportDetail(String reportId) throws Exception {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
         return report;
     }
 
+    @Transactional(value = "transactionManager", readOnly = true)
     public ReportResponse getReportDetailResponse(String reportId) throws Exception {
         Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
-        return ReportResponse.fromEntity(report, getReportedContentImages(report));
+        return toReportResponse(report);
     }
 
+    @Transactional(value = "transactionManager", readOnly = true)
     public Page<ReportResponse> getReports(String status, String type, Pageable pageable) throws Exception {
         ReportStatus reportStatus = parseAndValidateReportStatus(status);
         ReportType reportType = parseAndValidateReportType(type);
         return reportRepository.findByStatusAndOptionalType(reportStatus, reportType, pageable)
-                .map(ReportResponse::fromEntity);
+                .map(this::toReportResponse);
     }
 
+    @Transactional(value = "transactionManager", readOnly = true)
     public Page<ReportResponse> getReports(String type, Pageable pageable) throws Exception {
         ReportType reportType = parseAndValidateReportType(type);
         return reportRepository.findByOptionalType(reportType, pageable)
-                .map(ReportResponse::fromEntity);
+                .map(this::toReportResponse);
     }
 
     @Transactional(value = "transactionManager")
@@ -213,7 +215,6 @@ public class ReportService {
                     .targetType(ReportType.GROUP)
                     .reporter(currentUser)
                     .reportedUser(report.getReportedUser())
-                    .reportedContentSnapshot(buildGroupSnapshot(group))
                     .resolvedBy(currentUser)
                     .adminNote(adminNote)
                     .reason(dto.getReason() != null ? dto.getReason() : report.getReason())
@@ -240,8 +241,8 @@ public class ReportService {
             Comment comment = commentRepository.findById(targetCommentId)
                     .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận liên quan!"));
             if (comment.getStatus() == ContentStatus.ACTIVE) {
-                int hiddenCommentCount = hideActiveCommentTree(comment);
-                decrementCommentCounters(comment, hiddenCommentCount);
+                hideActiveCommentTree(comment);
+                decrementParentReplyCounter(comment);
             }
 
             if (!isReporterAdmin) {
@@ -250,7 +251,6 @@ public class ReportService {
                         .targetType(ReportType.COMMENT)
                         .reporter(currentUser)
                         .reportedUser(comment.getUser())
-                        .reportedContentSnapshot(comment.getContent())
                         .resolvedBy(currentUser)
                         .adminNote(adminNote)
                         .reason(dto.getReason() != null ? dto.getReason() : report.getReason())
@@ -279,7 +279,6 @@ public class ReportService {
                     .targetType(ReportType.POST)
                     .reporter(currentUser)
                     .reportedUser(post.getUser())
-                    .reportedContentSnapshot(post.getContent())
                     .resolvedBy(currentUser)
                     .adminNote(adminNote)
                     .reason(dto.getReason() != null ? dto.getReason() : report.getReason())
@@ -297,16 +296,18 @@ public class ReportService {
         }
     }
 
+    @Transactional(value = "transactionManager", readOnly = true)
     public Page<ReportResponse> searchReports(String query, Pageable pageable) throws Exception {
-        return reportRepository.searchReports(query, pageable).map(ReportResponse::fromEntity);
+        return reportRepository.searchReports(query, pageable).map(this::toReportResponse);
     }
 
+    @Transactional(value = "transactionManager", readOnly = true)
     public Page<AdminReportResponse> getReportsByUserId(String userId, Pageable pageable) throws Exception {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
 
         return reportRepository.findByReportedUser(user, pageable)
-                .map(AdminReportResponse::fromEntity);
+                .map(this::toAdminReportResponse);
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -321,7 +322,6 @@ public class ReportService {
                 .targetType(ReportType.POST)
                 .reporter(admin)
                 .reportedUser(post.getUser())
-                .reportedContentSnapshot(post.getContent())
                 .resolvedBy(admin)
                 .adminNote(dto.getAdminNotes())
                 .reason(dto.getReason())
@@ -357,7 +357,6 @@ public class ReportService {
                 .targetType(ReportType.GROUP)
                 .reporter(admin)
                 .reportedUser(leader.getUser())
-                .reportedContentSnapshot(buildGroupSnapshot(group))
                 .resolvedBy(admin)
                 .adminNote(dto.getAdminNotes())
                 .reason(dto.getReason())
@@ -395,31 +394,22 @@ public class ReportService {
         eventPublisher.publishEvent(event);
     }
 
-    private int hideActiveCommentTree(Comment comment) {
+    private void hideActiveCommentTree(Comment comment) {
         if (comment.getStatus() != ContentStatus.ACTIVE) {
-            return 0;
+            return;
         }
 
-        int hiddenCount = 1;
         List<Comment> activeReplies = commentRepository.findByParentComment_IdAndStatus(
                 comment.getId(), ContentStatus.ACTIVE);
         for (Comment reply : activeReplies) {
-            hiddenCount += hideActiveCommentTree(reply);
+            hideActiveCommentTree(reply);
         }
 
         comment.setStatus(ContentStatus.HIDDEN);
         commentRepository.save(comment);
-        return hiddenCount;
     }
 
-    private void decrementCommentCounters(Comment comment, int hiddenCommentCount) {
-        Post post = comment.getPost();
-        if (post != null) {
-            int commentCount = post.getCommentCount() != null ? post.getCommentCount() : 0;
-            post.setCommentCount(Math.max(0, commentCount - hiddenCommentCount));
-            postRepository.save(post);
-        }
-
+    private void decrementParentReplyCounter(Comment comment) {
         Comment parentComment = comment.getParentComment();
         if (parentComment != null && parentComment.getStatus() == ContentStatus.ACTIVE) {
             int replyCount = parentComment.getReplyCount() != null ? parentComment.getReplyCount() : 0;
@@ -428,18 +418,32 @@ public class ReportService {
         }
     }
 
-    private String buildGroupSnapshot(Group group) {
-        return "Tên nhóm: " + group.getName()
-                + "\nMô tả: " + (group.getDescription() != null ? group.getDescription() : "")
-                + "\nSố thành viên: " + group.getMemberCount()
-                + "\nTrạng thái: " + group.getStatus();
+    private ReportResponse toReportResponse(Report report) {
+        return ReportResponse.fromEntity(report, getCurrentReportTarget(report));
     }
 
-    private List<String> getReportedContentImages(Report report) {
-        if (report == null || report.getTargetType() != ReportType.POST || report.getTargetId() == null) {
-            return List.of();
+    private AdminReportResponse toAdminReportResponse(Report report) {
+        return AdminReportResponse.fromEntity(report, getCurrentReportTarget(report));
+    }
+
+    private ReportTargetResponse getCurrentReportTarget(Report report) {
+        if (report == null || report.getTargetType() == null || report.getTargetId() == null) {
+            return null;
         }
-        return postRepository.findImageUrlsByPostId(report.getTargetId());
+
+        return switch (report.getTargetType()) {
+            case POST -> postRepository.findById(report.getTargetId())
+                    .map(post -> ReportTargetResponse.fromPost(
+                            post,
+                            postRepository.findImageUrlsByPostId(post.getId())))
+                    .orElse(null);
+            case COMMENT -> commentRepository.findById(report.getTargetId())
+                    .map(ReportTargetResponse::fromComment)
+                    .orElse(null);
+            case GROUP -> groupRepository.findById(report.getTargetId())
+                    .map(ReportTargetResponse::fromGroup)
+                    .orElse(null);
+        };
     }
 
 }

@@ -1,4 +1,4 @@
-package com.example.campushub.dtos.record;
+package com.example.campushub.dtos.record.posts;
 
 import java.util.Set;
 
@@ -7,7 +7,7 @@ import lombok.Setter;
 
 @Getter
 @Setter
-public class PostTagsDTO{
+public class PostTags{
     String postId;
     Set<String> tagNames;
 }

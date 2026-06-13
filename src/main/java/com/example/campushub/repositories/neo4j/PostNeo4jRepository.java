@@ -9,7 +9,7 @@ import org.springframework.data.neo4j.repository.query.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import com.example.campushub.dtos.record.PostTagsDTO;
+import com.example.campushub.dtos.record.posts.PostTags;
 import com.example.campushub.models.neo4j.PostNode;
 
 @Repository
@@ -49,26 +49,55 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         "SET p.status = $status")
         void updatePostStatus(String postId, String status);
 
-        @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'})  " +
-                        "ORDER BY p.createdAt DESC " +
-                        "RETURN p.id " +
-                        "SKIP $offset " +
+        @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'}) " +
+                        "WITH DISTINCT p " +
+                        "ORDER BY p.createdAt DESC, p.id DESC " +
+                        "RETURN p.id AS id, p.createdAt AS createdAt " +
                         "LIMIT $limitPlusOne")
-        List<String> findActivePostIdsByTagName(@Param("tagName") String tagName,  @Param("offset") long offset, @Param("limitPlusOne") int limitPlusOne);
+        List<PostCursorProjection> findLatestPostsByTagName(
+                        @Param("tagName") String tagName,
+                        @Param("limitPlusOne") int limitPlusOne);
 
-        @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'})  " +
-                        "ORDER BY p.createdAt DESC " +
-                        "RETURN p.id " +
-                        "LIMIT $limit")
-        List<String> findActivePostIdsByTagName(@Param("tagName") String tagName, @Param("limit") int limit);
+        @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'}) " +
+                        "WHERE p.createdAt < $cursorCreatedAt " +
+                        "OR (p.createdAt = $cursorCreatedAt AND p.id < $cursorPostId) " +
+                        "WITH DISTINCT p " +
+                        "ORDER BY p.createdAt DESC, p.id DESC " +
+                        "RETURN p.id AS id, p.createdAt AS createdAt " +
+                        "LIMIT $limitPlusOne")
+        List<PostCursorProjection> findLatestPostsByTagNameAfter(
+                        @Param("tagName") String tagName,
+                        @Param("cursorCreatedAt") LocalDateTime cursorCreatedAt,
+                        @Param("cursorPostId") String cursorPostId,
+                        @Param("limitPlusOne") int limitPlusOne);
 
-        @Query("MATCH (p:Post {status: 'ACTIVE'})-[:HAS_TAG]->(t:Interest) " +
-               "WHERE t.name IN $tagNames " +
-               "WITH DISTINCT p " +
-               "ORDER BY p.createdAt DESC " +
-               "RETURN p.id " +
-               "LIMIT $limit")
-        List<String> findActivePostIdsByTagNames(@Param("tagNames") Set<String> tagNames, @Param("limit") int limit);
+        @Query("MATCH (me:User {id: $userId}) " +
+                        "MATCH (p:Post {status: 'ACTIVE'}) " +
+                        "WHERE (me)-[:INTERESTED_IN]->(:Interest)<-[:HAS_TAG]-(p) " +
+                        "OR (me)-[:FOLLOWS]->(:User)-[:POSTED]->(p) " +
+                        "WITH DISTINCT p " +
+                        "ORDER BY p.createdAt DESC, p.id DESC " +
+                        "RETURN p.id AS id, p.createdAt AS createdAt " +
+                        "LIMIT $limitPlusOne")
+        List<PostCursorProjection> findLatestHomeFeedPosts(
+                        @Param("userId") String userId,
+                        @Param("limitPlusOne") int limitPlusOne);
+
+        @Query("MATCH (me:User {id: $userId}) " +
+                        "MATCH (p:Post {status: 'ACTIVE'}) " +
+                        "WHERE ((me)-[:INTERESTED_IN]->(:Interest)<-[:HAS_TAG]-(p) " +
+                        "OR (me)-[:FOLLOWS]->(:User)-[:POSTED]->(p)) " +
+                        "AND (p.createdAt < $cursorCreatedAt " +
+                        "OR (p.createdAt = $cursorCreatedAt AND p.id < $cursorPostId)) " +
+                        "WITH DISTINCT p " +
+                        "ORDER BY p.createdAt DESC, p.id DESC " +
+                        "RETURN p.id AS id, p.createdAt AS createdAt " +
+                        "LIMIT $limitPlusOne")
+        List<PostCursorProjection> findLatestHomeFeedPostsAfter(
+                        @Param("userId") String userId,
+                        @Param("cursorCreatedAt") LocalDateTime cursorCreatedAt,
+                        @Param("cursorPostId") String cursorPostId,
+                        @Param("limitPlusOne") int limitPlusOne);
 
         @Query("MATCH (p:Post {id: $postId})-[:HAS_TAG]->(t:Interest) RETURN t.name")
         List<String> getTagNamesByPostId(@Param("postId") String postId);
@@ -76,7 +105,7 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
         @Query("MATCH (p:Post) WHERE p.id IN $postIds " +
                         "OPTIONAL MATCH (p)-[:HAS_TAG]->(t:Interest) " +
                         "RETURN p.id AS postId, collect(t.name) AS tagNames")
-        List<PostTagsDTO> findTagsByPostIds(@Param("postIds") List<String> postIds);
+        List<PostTags> findTagsByPostIds(@Param("postIds") List<String> postIds);
 
         @Query("MATCH (p:Post {status: 'ACTIVE'})-[:HAS_TAG]->(t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) " +
                         "RETURN t.name AS label, count(DISTINCT p) AS value " +

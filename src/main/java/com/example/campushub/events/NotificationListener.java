@@ -10,11 +10,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.enums.NotificationType;
+import com.example.campushub.enums.ContentStatus;
+import com.example.campushub.enums.ReactionType;
 import com.example.campushub.models.jpa.Notification;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.NotificationRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
+import com.example.campushub.repositories.jpa.PostReactionRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.responses.NotificationResponse;
 
@@ -26,6 +29,7 @@ public class NotificationListener {
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final PostRepository postRepository;
+    private final PostReactionRepository postReactionRepository;
     private final CommentRepository commentRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
@@ -62,8 +66,8 @@ public class NotificationListener {
 
                     switch (event.getType()) {
                         case LIKE_POST:
-                            totalCount = postRepository.findById(event.getTargetId())
-                                    .map(p -> (long) p.getLiked()).orElse(1L);
+                            totalCount = postReactionRepository.countByPost_IdAndType(
+                                    event.getTargetId(), ReactionType.LIKE);
                             baseMessage = " đã thích bài viết của bạn";
                             break;
                         case LIKE_COMMENT:
@@ -72,8 +76,8 @@ public class NotificationListener {
                             baseMessage = " đã thích bình luận của bạn";
                             break;
                         case COMMENT_POST:
-                            totalCount = postRepository.findById(event.getTargetId())
-                                    .map(p -> (long) p.getCommentCount()).orElse(1L);
+                            totalCount = commentRepository.countByPost_IdAndStatus(
+                                    event.getTargetId(), ContentStatus.ACTIVE);
                             baseMessage = " đã bình luận về bài viết của bạn";
                             break;
                         case REPLY_COMMENT:
@@ -82,8 +86,8 @@ public class NotificationListener {
                             baseMessage = " đã trả lời bình luận của bạn";
                             break;
                         case SHARE_POST:
-                            totalCount = postRepository.findById(event.getTargetId())
-                                    .map(p -> (long) p.getSharedCount()).orElse(1L);
+                            totalCount = postRepository.countBySharedPost_IdAndStatus(
+                                    event.getTargetId(), ContentStatus.ACTIVE);
                             baseMessage = " đã chia sẻ bài viết của bạn";
                             break;
                         default:

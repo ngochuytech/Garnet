@@ -29,6 +29,7 @@ import com.example.campushub.responses.GroupMemberResponse;
 import com.example.campushub.responses.GroupResponse;
 import com.example.campushub.responses.GroupStatusResponse;
 import com.example.campushub.responses.ReportResponse;
+import com.example.campushub.responses.ReportTargetResponse;
 import lombok.RequiredArgsConstructor;
 import net.datafaker.Faker;
 import org.springframework.context.ApplicationEventPublisher;
@@ -255,7 +256,7 @@ public class GroupService {
         List<ReportResponse> reports = groupReports.stream()
                 .filter(report -> report.getReporter().getRole() == UserRole.ADMIN)
                 .filter(report -> report.getStatus() == ReportStatus.RESOLVED)
-                .map(ReportResponse::fromEntity)
+                .map(report -> ReportResponse.fromEntity(report, ReportTargetResponse.fromGroup(group)))
                 .collect(Collectors.toList());
         String adminNotes = groupReports.stream()
                 .map(Report::getAdminNote)

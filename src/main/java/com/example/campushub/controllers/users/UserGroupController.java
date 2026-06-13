@@ -48,15 +48,9 @@ public class UserGroupController {
     @GetMapping("/{groupId}/posts")
     public ResponseEntity<?> getPostsByGroup(@AuthenticationPrincipal User user,
                                              @PathVariable String groupId,
-                                             @RequestParam(defaultValue = "0") int page,
                                              @RequestParam(defaultValue = "20") int size,
-                                             @RequestParam(defaultValue = "createdAt") String sortBy,
-                                             @RequestParam(defaultValue = "desc") String sortDir) throws Exception {
-        Sort sort = sortDir.equalsIgnoreCase("desc")
-                ? Sort.by(sortBy).descending()
-                : Sort.by(sortBy).ascending();
-        Pageable pageable = PageRequest.of(page, size, sort);
-        return ResponseEntity.ok(ApiResponse.ok(PagedResponse.from(postService.getPostsByGroupId(groupId, pageable, user))));
+                                             @RequestParam(required = false) String cursor) throws Exception {
+        return ResponseEntity.ok(ApiResponse.ok(postService.getPostsByGroupId(groupId, size, cursor, user)));
     }
 
     @GetMapping("/{groupId}/members")

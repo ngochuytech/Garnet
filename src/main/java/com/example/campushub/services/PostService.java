@@ -1,11 +1,14 @@
 package com.example.campushub.services;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -14,23 +17,17 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Slice;
-import org.springframework.data.domain.SliceImpl;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.example.campushub.dtos.record.PostTagsDTO;
+import com.example.campushub.dtos.record.posts.PostStats;
+import com.example.campushub.dtos.record.posts.PostTags;
 import com.example.campushub.dtos.users.CreatePostDTO;
 import com.example.campushub.dtos.users.CreateSharePostDTO;
-import com.example.campushub.dtos.users.UpdatePostDTO;
 import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.enums.GroupStatus;
 import com.example.campushub.enums.NotificationType;
@@ -42,13 +39,12 @@ import com.example.campushub.exceptions.ForbiddenAccessException;
 import com.example.campushub.exceptions.InvalidContentStateException;
 import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.Post;
-import com.example.campushub.models.jpa.PostEditHistory;
 import com.example.campushub.models.jpa.PostReaction;
 import com.example.campushub.models.jpa.PostReactionId;
 import com.example.campushub.models.jpa.User;
-import com.example.campushub.repositories.jpa.PostEditHistoryRepository;
 import com.example.campushub.repositories.jpa.PostReactionRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
+import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.jpa.GroupMemberRepository;
 import com.example.campushub.models.jpa.GroupMember;
@@ -57,9 +53,13 @@ import com.example.campushub.models.jpa.Group;
 import com.example.campushub.enums.MemberRole;
 import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.repositories.jpa.GroupRepository;
+import com.example.campushub.repositories.jpa.projections.PostCountProjection;
+import com.example.campushub.repositories.jpa.projections.PostReactionCountProjection;
+import com.example.campushub.repositories.neo4j.PostCursorProjection;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
 import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
+import com.example.campushub.responses.CursorPagedResponse;
 import com.example.campushub.responses.PostResponse;
 import com.example.campushub.responses.admin.AdminPostResponse;
 
@@ -69,10 +69,8 @@ import net.datafaker.Faker;
 @Service
 @RequiredArgsConstructor
 public class PostService {
-    private static final int HOME_CANDIDATE_LIMIT = 140;
-    private static final int TOPIC_CANDIDATE_LIMIT = 140;
-    private static final int GROUP_CANDIDATE_LIMIT = 140;
-    private static final Duration HOME_FEED_CACHE_TTL = Duration.ofMinutes(5);
+    private static final int MAX_POST_FEED_PAGE_SIZE = 50;
+    private static final String POST_CURSOR_SEPARATOR = "|";
 
     private final PostRepository postRepository;
     private final PostNeo4jRepository postNeo4jRepository;
@@ -82,11 +80,10 @@ public class PostService {
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final PostReactionRepository postReactionRepository;
-    private final PostEditHistoryRepository postEditHistoryRepository;
+    private final CommentRepository commentRepository;
     private final FileUploadService fileUploadService;
     private final ApplicationEventPublisher eventPublisher;
     private final Faker faker;
-    private final StringRedisTemplate redisTemplate;
 
     private ContentStatus parseAndValidateContentStatus(String status) {
         if (status == null || status.isBlank()) {
@@ -144,7 +141,7 @@ public class PostService {
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
-    public int  seedPosts(User currentUser, int count, int maxReactions, boolean includeImages, boolean includeGroups) {
+    public int seedPosts(User currentUser, int count, int maxReactions, boolean includeImages, boolean includeGroups) {
         if (count < 1) {
             throw new InvalidParamException("count must be greater than 0");
         }
@@ -179,7 +176,7 @@ public class PostService {
                 if (authorInterests.isEmpty()) {
                     continue;
                 }
-                Set<String> postTags = pickRandomTags(authorInterests, 2, 6);
+                Set<String> postTags = pickRandomTags(authorInterests, 1, 3);
                 Group group = includeGroups ? pickRandomApprovedGroup(author) : null;
                 String seed = faker.internet().uuid();
 
@@ -237,19 +234,11 @@ public class PostService {
             return;
         }
 
-        int liked = 0;
-        int disliked = 0;
         List<PostReaction> reactions = new ArrayList<>();
         for (User reactor : candidates.subList(0, reactionCount)) {
             ReactionType type = ThreadLocalRandom.current().nextInt(100) < 80
                     ? ReactionType.LIKE
                     : ReactionType.DISLIKE;
-            if (type == ReactionType.LIKE) {
-                liked++;
-            } else {
-                disliked++;
-            }
-
             reactions.add(PostReaction.builder()
                     .id(new PostReactionId(post.getId(), reactor.getId()))
                     .post(post)
@@ -259,9 +248,6 @@ public class PostService {
         }
 
         postReactionRepository.saveAll(reactions);
-        post.setLiked(liked);
-        post.setDisliked(disliked);
-        postRepository.save(post);
     }
 
     private Group pickRandomApprovedGroup(User author) {
@@ -357,24 +343,17 @@ public class PostService {
                     .user(user)
                     .type(ReactionType.LIKE)
                     .build();
-            post.setLiked(post.getLiked() + 1);
-            postRepository.save(post);
             postReactionRepository.save(reaction);
             isNewLike = true;
         } else if (reaction.getType() == ReactionType.DISLIKE) {
-            post.setLiked(post.getLiked() + 1);
-            post.setDisliked(post.getDisliked() - 1);
-            postRepository.save(post);
             reaction.setType(ReactionType.LIKE);
             postReactionRepository.save(reaction);
             isNewLike = true;
         } else {
-            post.setLiked(post.getLiked() - 1);
-            postRepository.save(post);
             postReactionRepository.delete(reaction);
         }
 
-        if(!user.getId().equals(post.getUser().getId()) && isNewLike) {
+        if (!user.getId().equals(post.getUser().getId()) && isNewLike) {
             NotificationEvent event = NotificationEvent.builder()
                     .recipientId(post.getUser().getId())
                     .recipientName(post.getUser().getUsername())
@@ -400,18 +379,11 @@ public class PostService {
                     .user(user)
                     .type(ReactionType.DISLIKE)
                     .build();
-            post.setDisliked(post.getDisliked() + 1);
-            postRepository.save(post);
             postReactionRepository.save(reaction);
         } else if (reaction.getType() == ReactionType.LIKE) {
-            post.setLiked(post.getLiked() - 1);
-            post.setDisliked(post.getDisliked() + 1);
-            postRepository.save(post);
             reaction.setType(ReactionType.DISLIKE);
             postReactionRepository.save(reaction);
         } else {
-            post.setDisliked(post.getDisliked() - 1);
-            postRepository.save(post);
             postReactionRepository.delete(reaction);
         }
     }
@@ -433,9 +405,6 @@ public class PostService {
             throw new DataNotFoundException("Một hoặc nhiều chủ đề không tồn tại");
         }
 
-        originalPost.setSharedCount(originalPost.getSharedCount() + 1);
-        postRepository.save(originalPost);
-
         Post sharedPost = Post.builder()
                 .content(dto.getContent())
                 .user(user)
@@ -443,7 +412,8 @@ public class PostService {
                 .build();
         postRepository.save(sharedPost);
         try {
-            postNeo4jRepository.createSharedPost(user.getId(), sharedPost.getId(), originalPost.getId(), dto.getTags(), sharedPost.getCreatedAt());
+            postNeo4jRepository.createSharedPost(user.getId(), sharedPost.getId(), originalPost.getId(), dto.getTags(),
+                    sharedPost.getCreatedAt());
         } catch (Exception e) {
             throw new RuntimeException("Lỗi khi tạo bài viết trên Neo4j: " + e.getMessage());
         }
@@ -473,13 +443,18 @@ public class PostService {
         List<String> sharedTags = post.getSharedPost() != null
                 ? getTagsForPost(post.getSharedPost().getId())
                 : null;
+        PostStats stats = getPostStatsMap(List.of(post))
+                .getOrDefault(post.getId(), PostStats.empty());
         return PostResponse.fromPost(
                 post,
                 userReaction,
                 tags,
                 sharedTags,
                 post.getGroup() != null ? post.getGroup().getName() : null,
-                post.getSharedPost() != null && post.getSharedPost().getGroup() != null ? post.getSharedPost().getGroup().getName() : null);
+                post.getSharedPost() != null && post.getSharedPost().getGroup() != null
+                        ? post.getSharedPost().getGroup().getName()
+                        : null,
+                stats);
     }
 
     public Post getPostById(String postId) throws Exception {
@@ -498,36 +473,16 @@ public class PostService {
         List<Post> posts = postRepository.findByUserAndStatus(user, ContentStatus.ACTIVE);
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
+        Map<String, PostStats> statsMap = getPostStatsMap(posts);
         return posts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap))
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
                 .collect(Collectors.toList());
-    }
-
-    @Transactional("transactionManager")
-    public void editPost(User user, String postId, UpdatePostDTO dto) throws Exception {
-        Post post = getPostById(postId);
-        if (!post.getUser().getId().equals(user.getId())) {
-            throw new ForbiddenAccessException("Bạn không có quyền chỉnh sửa bài viết này");
-        }
-
-        if (post.getStatus() != ContentStatus.ACTIVE) {
-            throw new InvalidContentStateException("Chỉ có thể chỉnh sửa bài viết đang ở trạng thái ACTIVE");
-        }
-
-        PostEditHistory history = PostEditHistory.builder()
-                .post(post)
-                .oldContent(post.getContent())
-                .build();
-        postEditHistoryRepository.save(history);
-
-        post.setContent(dto.getContent());
-        postRepository.save(post);
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void deletePost(User user, String postId) throws Exception {
         Post post = getPostById(postId);
-        
+
         boolean canDelete = post.getUser().getId().equals(user.getId());
         if (!canDelete && post.getGroup() != null) {
             GroupMemberId memberId = new GroupMemberId(post.getGroup().getId(), user.getId());
@@ -540,15 +495,9 @@ public class PostService {
         if (!canDelete) {
             throw new ForbiddenAccessException("Bạn không có quyền xóa bài viết này");
         }
-        
+
         post.setStatus(ContentStatus.DELETED);
 
-        Post sharedPost;
-        if (post.getSharedPost() != null) {
-            sharedPost = post.getSharedPost();
-            sharedPost.setSharedCount(sharedPost.getSharedCount() - 1);
-            postRepository.save(sharedPost);
-        }
         postRepository.save(post);
 
         try {
@@ -558,90 +507,139 @@ public class PostService {
         }
     }
 
-    public Page<PostResponse> getActivePostsByUserId(String userId, Pageable pageable, User currentUser)
-            throws Exception {
-        User user = userRepository.findById(userId)
+    public CursorPagedResponse<PostResponse> getActivePostsByUserId(
+            String userId,
+            int size,
+            String cursor,
+            User currentUser) throws Exception {
+        userRepository.findById(userId)
                 .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
-        Page<Post> posts = postRepository.findByUserAndStatus(user, ContentStatus.ACTIVE, pageable);
-        Map<String, String> reactions = getReactionsMap(posts.getContent(), currentUser);
-        Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
-        return posts.map(post -> toPostResponse(post, reactions, tagsMap));
+        validatePostFeedPageSize(size);
+        PostCursor decodedCursor = decodePostCursor(cursor);
+        int limitPlusOne = size + 1;
+        Pageable limit = PageRequest.of(0, limitPlusOne);
+
+        List<Post> candidatePosts = decodedCursor == null
+                ? postRepository.findLatestPostsByUserId(
+                        userId,
+                        ContentStatus.ACTIVE,
+                        limit)
+                : postRepository.findLatestPostsByUserIdAfter(
+                        userId,
+                        ContentStatus.ACTIVE,
+                        decodedCursor.createdAt(),
+                        decodedCursor.postId(),
+                        limit);
+
+        boolean hasNext = candidatePosts.size() > size;
+        List<Post> posts = hasNext
+                ? candidatePosts.subList(0, size)
+                : candidatePosts;
+
+        Map<String, String> reactions = getReactionsMap(posts, currentUser);
+        Map<String, List<String>> tagsMap = getTagsMap(posts);
+        Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        List<PostResponse> responses = posts.stream()
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .collect(Collectors.toList());
+
+        String nextCursor = hasNext && !posts.isEmpty()
+                ? encodePostCursor(posts.getLast())
+                : null;
+        return new CursorPagedResponse<>(responses, size, nextCursor, nextCursor != null);
     }
 
-    public Page<PostResponse> getPostsForHomeResponses(Pageable pageable, User user) throws Exception {
-        String cacheKey = buildHomeFeedCacheKey(user);
-        List<String> rankedPostIds = getCachedHomeFeedPostIds(cacheKey);
-        if (rankedPostIds.isEmpty()) {
-            rankedPostIds = buildHomeFeedRankedPostIds(user);
-            cacheHomeFeedPostIds(cacheKey, rankedPostIds);
-        }
+    public CursorPagedResponse<PostResponse> getPostsForHomeResponses(
+            int size,
+            String cursor,
+            User user) throws Exception {
+        validatePostFeedPageSize(size);
+        PostCursor decodedCursor = decodePostCursor(cursor);
+        int limitPlusOne = size + 1;
 
-        // Nếu ko có bài viết nào phù hợp, trả rỗng
-        if (rankedPostIds.isEmpty()) {
-            Page<Post> emptyPage = new PageImpl<>(Collections.emptyList(), pageable, 0);
-            return emptyPage.map(post -> null); 
-        }
+        List<PostCursorProjection> candidatePosts = decodedCursor == null
+                ? postNeo4jRepository.findLatestHomeFeedPosts(user.getId(), limitPlusOne)
+                : postNeo4jRepository.findLatestHomeFeedPostsAfter(
+                        user.getId(),
+                        decodedCursor.createdAt(),
+                        decodedCursor.postId(),
+                        limitPlusOne);
 
-        int start = (int) pageable.getOffset();
-        int end = Math.min((start + pageable.getPageSize()), rankedPostIds.size());
-        
-        List<Post> pagedPostsList = Collections.emptyList();
-        if (start < rankedPostIds.size()) {
-            List<String> pagePostIds = rankedPostIds.subList(start, end);
-            pagedPostsList = postRepository.findByIdInAndStatus(pagePostIds, ContentStatus.ACTIVE);
-            pagedPostsList.sort(Comparator.comparingInt(post -> pagePostIds.indexOf(post.getId())));
-        }
+        boolean hasNext = candidatePosts.size() > size;
+        List<PostCursorProjection> pageCandidates = hasNext
+                ? candidatePosts.subList(0, size)
+                : candidatePosts;
+        List<String> pagePostIds = pageCandidates.stream()
+                .map(PostCursorProjection::getId)
+                .collect(Collectors.toList());
+        List<Post> posts = findActivePostsInOrder(pagePostIds);
 
-        Page<Post> posts = new PageImpl<>(pagedPostsList, pageable, rankedPostIds.size());
+        Map<String, String> reactions = getReactionsMap(posts, user);
+        Map<String, List<String>> tagsMap = getTagsMap(posts);
+        Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        List<PostResponse> responses = posts.stream()
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .collect(Collectors.toList());
 
-        Map<String, String> reactions = getReactionsMap(posts.getContent(), user);
-        Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
-        return posts.map(post -> toPostResponse(post, reactions, tagsMap));
+        String nextCursor = hasNext && !pageCandidates.isEmpty()
+                ? encodePostCursor(pageCandidates.getLast())
+                : null;
+        return new CursorPagedResponse<>(responses, size, nextCursor, nextCursor != null);
     }
 
-    private List<String> buildHomeFeedRankedPostIds(User user) {
-        Set<String> interests = findUserInterestNames(user.getId());
-        // TH: người dùng ko có sở thích
-        if (interests == null || interests.isEmpty()) {
-            Pageable candidatePage = PageRequest.of(
-                    0,
-                    HOME_CANDIDATE_LIMIT,
-                    Sort.by(Sort.Direction.DESC, "createdAt"));
-            return postRepository.findByStatus(ContentStatus.ACTIVE, candidatePage).getContent().stream()
-                    .map(Post::getId)
-                    .collect(Collectors.toList());
+    private void validatePostFeedPageSize(int size) {
+        if (size < 1 || size > MAX_POST_FEED_PAGE_SIZE) {
+            throw new InvalidParamException(
+                    "Post feed size must be between 1 and " + MAX_POST_FEED_PAGE_SIZE);
         }
+    }
 
-        // Lấy Post IDs từ Neo4j
-        List<String> postIds = postNeo4jRepository.findActivePostIdsByTagNames(interests, HOME_CANDIDATE_LIMIT);
+    private PostCursor decodePostCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) {
+            return null;
+        }
+        try {
+            String decoded = new String(
+                    Base64.getUrlDecoder().decode(cursor),
+                    StandardCharsets.UTF_8);
+            String[] parts = decoded.split("\\|", 2);
+            if (parts.length != 2 || parts[1].isBlank()) {
+                throw new IllegalArgumentException();
+            }
+            return new PostCursor(LocalDateTime.parse(parts[0]), parts[1]);
+        } catch (IllegalArgumentException | DateTimeParseException e) {
+            throw new InvalidParamException("Invalid post cursor");
+        }
+    }
+
+    private record PostCursor(LocalDateTime createdAt, String postId) {}
+
+    private String encodePostCursor(PostCursorProjection post) {
+        return encodePostCursor(post.getCreatedAt(), post.getId());
+    }
+
+    private String encodePostCursor(Post post) {
+        return encodePostCursor(post.getCreatedAt(), post.getId());
+    }
+
+    private String encodePostCursor(LocalDateTime createdAt, String postId) {
+        String rawCursor = createdAt
+                + POST_CURSOR_SEPARATOR
+                + postId;
+        return Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(rawCursor.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private List<Post> findActivePostsInOrder(List<String> postIds) {
         if (postIds.isEmpty()) {
             return Collections.emptyList();
         }
 
-        // Lấy thông tin Post từ MySQL để tính điểm
-        List<Post> relevantPosts = postRepository.findByIdInAndStatus(postIds, ContentStatus.ACTIVE);
-
-        relevantPosts.sort((p1, p2) -> {
-            double score1 = calculateHackerNewsScore(p1);
-            double score2 = calculateHackerNewsScore(p2);
-            return Double.compare(score2, score1);
-        });
-
-        return relevantPosts.stream()
-                .map(Post::getId)
-                .collect(Collectors.toList());
-    }
-
-    private String buildHomeFeedCacheKey(User user) {
-        Set<String> interests = findUserInterestNames(user.getId());
-        String interestFingerprint = "none";
-        if (interests != null && !interests.isEmpty()) {
-            interestFingerprint = Integer.toHexString(interests.stream()
-                    .sorted()
-                    .collect(Collectors.joining(","))
-                    .hashCode());
-        }
-        return "campushub:home-feed:" + user.getId() + ":" + interestFingerprint;
+        List<Post> posts = new ArrayList<>(
+                postRepository.findByIdInAndStatus(postIds, ContentStatus.ACTIVE));
+        posts.sort(Comparator.comparingInt(post -> postIds.indexOf(post.getId())));
+        return posts;
     }
 
     private Set<String> findUserInterestNames(String userId) {
@@ -652,82 +650,49 @@ public class PostService {
         return interests == null ? Set.of() : interests;
     }
 
-    private List<String> getCachedHomeFeedPostIds(String cacheKey) {
-        try {
-            List<String> cachedPostIds = redisTemplate.opsForList().range(cacheKey, 0, -1);
-            return cachedPostIds == null ? Collections.emptyList() : cachedPostIds;
-        } catch (DataAccessException e) {
-            return Collections.emptyList();
-        }
-    }
-
-    private void cacheHomeFeedPostIds(String cacheKey, List<String> postIds) {
-        if (postIds.isEmpty()) {
-            return;
-        }
-        try {
-            redisTemplate.delete(cacheKey);
-            redisTemplate.opsForList().rightPushAll(cacheKey, postIds);
-            redisTemplate.expire(cacheKey, HOME_FEED_CACHE_TTL);
-        } catch (DataAccessException e) {
-            System.err.println("Failed to cache home feed post IDs: " + e.getMessage());
-        }
-    }
-
-    private double calculateHackerNewsScore(Post post) {
-        int likes = post.getLiked() != null ? post.getLiked() : 0;
-        int dislikes = post.getDisliked() != null ? post.getDisliked() : 0;
-        int comments = post.getCommentCount() != null ? post.getCommentCount() : 0;
-        
-        int E = likes + (comments * 3) - (dislikes * 2);
-        
-        long hoursBetween = ChronoUnit.HOURS.between(post.getCreatedAt(), LocalDateTime.now());
-        double T = Math.max(hoursBetween, 0.0);
-        double G = 1.8;
-        
-        return E / Math.pow(T + 2, G);
-    }
-
-    public Slice<PostResponse> getPostsByGroupId(String groupId, Pageable pageable, User user) throws Exception {
+    public CursorPagedResponse<PostResponse> getPostsByGroupId(
+            String groupId,
+            int size,
+            String cursor,
+            User user) throws Exception {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa"));
         if (group.getStatus() == GroupStatus.DELETED) {
             throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
         }
-        Pageable candidatePage = PageRequest.of(
-                0,
-                GROUP_CANDIDATE_LIMIT,
-                Sort.by(Sort.Direction.DESC, "createdAt"));
-        List<Post> posts = new ArrayList<>(
-                postRepository.findByGroupIdAndStatus(groupId, ContentStatus.ACTIVE, candidatePage).getContent());
-                
-        if(posts.isEmpty()) {
-            return new SliceImpl<>(Collections.emptyList(), pageable, false);
-        }
+        validatePostFeedPageSize(size);
+        PostCursor decodedCursor = decodePostCursor(cursor);
+        int limitPlusOne = size + 1;
+        Pageable limit = PageRequest.of(0, limitPlusOne);
 
-        if (posts.size() > 1) {
-            posts.sort((p1, p2) -> {
-                double score1 = calculateHackerNewsScore(p1);
-                double score2 = calculateHackerNewsScore(p2);
-                return Double.compare(score2, score1);
-            });
-        }
+        List<Post> candidatePosts = decodedCursor == null
+                ? postRepository.findLatestPostsByGroupId(
+                        groupId,
+                        ContentStatus.ACTIVE,
+                        limit)
+                : postRepository.findLatestPostsByGroupIdAfter(
+                        groupId,
+                        ContentStatus.ACTIVE,
+                        decodedCursor.createdAt(),
+                        decodedCursor.postId(),
+                        limit);
 
-        int start = (int) pageable.getOffset();
-        int end = Math.min(start + pageable.getPageSize(), posts.size());
-        boolean hasNext = end < posts.size();
-        if (start >= posts.size()) {
-            return new SliceImpl<>(Collections.emptyList(), pageable, false);
-        }
-        List<Post> pagedPosts = posts.subList(start, end);
+        boolean hasNext = candidatePosts.size() > size;
+        List<Post> posts = hasNext
+                ? candidatePosts.subList(0, size)
+                : candidatePosts;
 
-        Map<String, String> reactions = getReactionsMap(pagedPosts, user);
-        Map<String, List<String>> tagsMap = getTagsMap(pagedPosts);
-
-        List<PostResponse> responses = pagedPosts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap))
+        Map<String, String> reactions = getReactionsMap(posts, user);
+        Map<String, List<String>> tagsMap = getTagsMap(posts);
+        Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        List<PostResponse> responses = posts.stream()
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
                 .collect(Collectors.toList());
-        return new SliceImpl<>(responses, pageable, hasNext);
+
+        String nextCursor = hasNext && !posts.isEmpty()
+                ? encodePostCursor(posts.getLast())
+                : null;
+        return new CursorPagedResponse<>(responses, size, nextCursor, nextCursor != null);
     }
 
     private Map<String, String> getReactionsMap(List<Post> posts, User user) {
@@ -752,20 +717,75 @@ public class PostService {
                 postIds.add(post.getSharedPost().getId());
             }
         }
-        List<PostTagsDTO> postNodes = postNeo4jRepository.findTagsByPostIds(postIds);
+        List<PostTags> postNodes = postNeo4jRepository.findTagsByPostIds(postIds);
         return postNodes.stream()
                 .collect(Collectors.toMap(
-                        PostTagsDTO::getPostId,
+                        PostTags::getPostId,
                         proj -> {
                             Set<String> tags = proj.getTagNames();
-                            return (tags == null || tags.isEmpty()) 
-                                    ? Collections.<String>emptyList() 
+                            return (tags == null || tags.isEmpty())
+                                    ? Collections.<String>emptyList()
                                     : new ArrayList<>(tags);
                         }));
     }
 
+    private Map<String, PostStats> getPostStatsMap(List<Post> posts) {
+        if (posts.isEmpty()) {
+            return Map.of();
+        }
+
+        List<String> postIds = posts.stream()
+                .map(Post::getId)
+                .toList();
+
+        Map<String, int[]> counts = new HashMap<>();
+        for (String postId : postIds) {
+            counts.put(postId, new int[4]);
+        }
+
+        // Like & Dislike counts
+        for (PostReactionCountProjection projection :
+                postReactionRepository.countByPostIdsGroupedByType(postIds)) {
+            int[] postCounts = counts.get(projection.getPostId());
+            if (postCounts == null) {
+                continue;
+            }
+            if (projection.getType() == ReactionType.LIKE) {
+                postCounts[0] = projection.getCount().intValue();
+            } else if (projection.getType() == ReactionType.DISLIKE) {
+                postCounts[1] = projection.getCount().intValue();
+            }
+        }
+
+        // Comment counts
+        for (PostCountProjection projection :
+                commentRepository.countByPostIdsAndStatus(postIds, ContentStatus.ACTIVE)) {
+            int[] postCounts = counts.get(projection.getPostId());
+            if (postCounts != null) {
+                postCounts[2] = projection.getCount().intValue();
+            }
+        }
+
+        // Share counts 
+        for (PostCountProjection projection :
+                postRepository.countSharesByPostIdsAndStatus(postIds, ContentStatus.ACTIVE)) {
+            int[] postCounts = counts.get(projection.getPostId());
+            if (postCounts != null) {
+                postCounts[3] = projection.getCount().intValue();
+            }
+        }
+
+        return counts.entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> {
+                            int[] value = entry.getValue();
+                            return new PostStats(value[0], value[1], value[2], value[3]);
+                        }));
+    }
+
     private PostResponse toPostResponse(Post post, Map<String, String> reactions,
-            Map<String, List<String>> tagsMap) {
+            Map<String, List<String>> tagsMap, Map<String, PostStats> statsMap) {
         List<String> tags = tagsMap.getOrDefault(post.getId(), Collections.emptyList());
         List<String> sharedTags = post.getSharedPost() != null
                 ? tagsMap.getOrDefault(post.getSharedPost().getId(), Collections.emptyList())
@@ -776,37 +796,49 @@ public class PostService {
                 tags,
                 sharedTags,
                 post.getGroup() != null ? post.getGroup().getName() : null,
-                post.getSharedPost() != null && post.getSharedPost().getGroup() != null ? post.getSharedPost().getGroup().getName() : null);
+                post.getSharedPost() != null && post.getSharedPost().getGroup() != null
+                        ? post.getSharedPost().getGroup().getName()
+                        : null,
+                statsMap.getOrDefault(post.getId(), PostStats.empty()));
     }
 
-    public Slice<PostResponse> getPostsByTopicName(User user, String topicName, Pageable pageable) throws Exception {
-        List<String> postIds = postNeo4jRepository.findActivePostIdsByTagName(topicName, TOPIC_CANDIDATE_LIMIT);
-        if (postIds.isEmpty()) {
-            return new SliceImpl<>(Collections.emptyList(), pageable, false);
-        }
+    public CursorPagedResponse<PostResponse> getPostsByTopicName(
+            User user,
+            String topicName,
+            int size,
+            String cursor) throws Exception {
+        validatePostFeedPageSize(size);
+        PostCursor decodedCursor = decodePostCursor(cursor);
+        int limitPlusOne = size + 1;
 
-        List<Post> posts = postRepository.findByIdInAndStatus(postIds, ContentStatus.ACTIVE);
-        posts.sort((p1, p2) -> {
-            double score1 = calculateHackerNewsScore(p1);
-            double score2 = calculateHackerNewsScore(p2);
-            return Double.compare(score2, score1);
-        });
+        List<PostCursorProjection> candidatePosts = decodedCursor == null
+                ? postNeo4jRepository.findLatestPostsByTagName(topicName, limitPlusOne)
+                : postNeo4jRepository.findLatestPostsByTagNameAfter(
+                        topicName,
+                        decodedCursor.createdAt(),
+                        decodedCursor.postId(),
+                        limitPlusOne);
 
-        int start = (int) pageable.getOffset();
-        int end = Math.min(start + pageable.getPageSize(), posts.size());
-        boolean hasNext = end < posts.size();
-        if (start >= posts.size()) {
-            return new SliceImpl<>(Collections.emptyList(), pageable, false);
-        }
-        List<Post> pagedPosts = posts.subList(start, end);
-
-        Map<String, String> reactions = getReactionsMap(pagedPosts, user);
-        Map<String, List<String>> tagsMap = getTagsMap(pagedPosts);
-
-        List<PostResponse> responses = pagedPosts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap))
+        boolean hasNext = candidatePosts.size() > size;
+        List<PostCursorProjection> pageCandidates = hasNext
+                ? candidatePosts.subList(0, size)
+                : candidatePosts;
+        List<String> pagePostIds = pageCandidates.stream()
+                .map(PostCursorProjection::getId)
                 .collect(Collectors.toList());
-        return new SliceImpl<>(responses, pageable, hasNext);
+        List<Post> posts = findActivePostsInOrder(pagePostIds);
+
+        Map<String, String> reactions = getReactionsMap(posts, user);
+        Map<String, List<String>> tagsMap = getTagsMap(posts);
+        Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        List<PostResponse> responses = posts.stream()
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .collect(Collectors.toList());
+
+        String nextCursor = hasNext && !pageCandidates.isEmpty()
+                ? encodePostCursor(pageCandidates.getLast())
+                : null;
+        return new CursorPagedResponse<>(responses, size, nextCursor, nextCursor != null);
     }
 
     // --- ADMIN ---
@@ -817,30 +849,51 @@ public class PostService {
 
         Page<Post> posts = postRepository.findByUser(user, pageable);
         Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
+        Map<String, PostStats> statsMap = getPostStatsMap(posts.getContent());
         return posts.map(post -> {
             List<String> tags = tagsMap.getOrDefault(post.getId(), Collections.emptyList());
             List<String> sharedTags = post.getSharedPost() != null
                     ? tagsMap.getOrDefault(post.getSharedPost().getId(), Collections.emptyList())
                     : null;
-            return AdminPostResponse.fromEntity(post, tags, sharedTags);
+            return AdminPostResponse.fromEntity(
+                    post,
+                    tags,
+                    sharedTags,
+                    statsMap.getOrDefault(post.getId(), PostStats.empty()));
         });
     }
 
     public Page<AdminPostResponse> searchPosts(String query, String status, Pageable pageable) throws Exception {
-        if(query != null && query.trim().isEmpty()) {
+        if (query != null && query.trim().isEmpty()) {
             query = null;
         }
         ContentStatus contentStatus = parseAndValidateContentStatus(status);
         Page<Post> posts = postRepository.searchPosts(query, contentStatus, pageable);
         Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
-        
+        Map<String, PostStats> statsMap = getPostStatsMap(posts.getContent());
+
         return posts.map(post -> {
             List<String> tags = tagsMap.getOrDefault(post.getId(), Collections.emptyList());
             List<String> sharedTags = post.getSharedPost() != null
                     ? tagsMap.getOrDefault(post.getSharedPost().getId(), Collections.emptyList())
                     : null;
-            return AdminPostResponse.fromEntity(post, tags, sharedTags);
+            return AdminPostResponse.fromEntity(
+                    post,
+                    tags,
+                    sharedTags,
+                    statsMap.getOrDefault(post.getId(), PostStats.empty()));
         });
+    }
+
+    public AdminPostResponse getAdminPostResponseById(String postId) throws Exception {
+        Post post = getPostById(postId);
+        List<String> tags = getTagsForPost(postId);
+        List<String> sharedTags = post.getSharedPost() != null
+                ? getTagsForPost(post.getSharedPost().getId())
+                : null;
+        PostStats stats = getPostStatsMap(List.of(post))
+                .getOrDefault(post.getId(), PostStats.empty());
+        return AdminPostResponse.fromEntity(post, tags, sharedTags, stats);
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)

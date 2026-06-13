@@ -25,7 +25,6 @@ import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.CommentReactionRepository;
 import com.example.campushub.repositories.jpa.CommentRepository;
-import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.responses.admin.AdminCommentResponse;
 
@@ -36,7 +35,6 @@ import lombok.RequiredArgsConstructor;
 public class CommentService {
     private final CommentRepository commentRepository;
     private final CommentReactionRepository commentReactionRepository;
-    private final PostRepository postRepository;
     private final PostService postService;
     private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -129,7 +127,6 @@ public class CommentService {
             targetType = "POST";
             targetId = post.getId();
         }
-        postRepository.incrementCommentCount(postId);
         commentRepository.save(comment);
 
         if (recipientId != null && !user.getId().equals(recipientId)) {

@@ -3,6 +3,7 @@ package com.example.campushub.responses;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.example.campushub.dtos.record.posts.PostStats;
 import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.models.jpa.Post;
 
@@ -65,23 +66,28 @@ public class PostResponse {
     }
 
     public static PostResponse fromPost(Post post) {
-        return fromPost(post, null, null, null);
+        return fromPost(post, null, null, null, null, null, PostStats.empty());
     }
 
     public static PostResponse fromPost(Post post, String userReaction) {
-        return fromPost(post, userReaction, null, null);
+        return fromPost(post, userReaction, null, null, null, null, PostStats.empty());
     }
 
     public static PostResponse fromPost(Post post, String userReaction, List<String> tags) {
-        return fromPost(post, userReaction, tags, null);
+        return fromPost(post, userReaction, tags, null, null, null, PostStats.empty());
     }
 
     public static PostResponse fromPost(Post post, String userReaction, List<String> tags, List<String> sharedTags){
-        return fromPost(post, userReaction, tags, sharedTags, null, null);
+        return fromPost(post, userReaction, tags, sharedTags, null, null, PostStats.empty());
     }
 
     public static PostResponse fromPost(Post post, String userReaction, List<String> tags, List<String> sharedTags,
             String groupName, String sharedGroupName){
+        return fromPost(post, userReaction, tags, sharedTags, groupName, sharedGroupName, PostStats.empty());
+    }
+
+    public static PostResponse fromPost(Post post, String userReaction, List<String> tags, List<String> sharedTags,
+            String groupName, String sharedGroupName, PostStats stats){
         Post sharedPost = post.getSharedPost();
         return PostResponse.builder()
             .id(post.getId())
@@ -92,10 +98,10 @@ public class PostResponse {
                 .department(post.getUser().getDepartment())
                 .build())
             .content(post.getContent())
-            .likeCount(post.getLiked())
-            .dislikeCount(post.getDisliked())
-            .commentCount(post.getCommentCount())
-            .shareCount(post.getSharedCount())
+            .likeCount(stats.likeCount())
+            .dislikeCount(stats.dislikeCount())
+            .commentCount(stats.commentCount())
+            .shareCount(stats.shareCount())
             .userReaction(userReaction)
             .tags(tags)
             .groupId(post.getGroup() != null ? post.getGroup().getId() : null)

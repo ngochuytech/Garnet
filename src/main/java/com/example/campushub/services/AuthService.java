@@ -1,11 +1,13 @@
 package com.example.campushub.services;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Base64;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,9 +16,12 @@ import com.example.campushub.components.JwtTokenProvider;
 import com.example.campushub.dtos.auth.LoginDTO;
 import com.example.campushub.dtos.auth.RegisterDTO;
 import com.example.campushub.dtos.auth.ResetPasswordDTO;
+import com.example.campushub.enums.UserActionTokenPurpose;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.models.jpa.UserActionToken;
+import com.example.campushub.repositories.jpa.UserActionTokenRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -24,7 +29,6 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class AuthService {
-    private static final String PASSWORD_RESET_KEY_PREFIX = "campushub:password-reset:";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final UserRepository userRepository;
@@ -32,8 +36,8 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
 
     private final JwtTokenProvider jwtTokenProvider;
-    private final StringRedisTemplate redisTemplate;
     private final EmailService emailService;
+    private final UserActionTokenRepository userActionTokenRepository;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -66,6 +70,7 @@ public class AuthService {
         return jwtTokenProvider.generateToken(user);
     }
 
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void forgotPassword(String email) {
         if (email == null || email.isBlank()) {
             return;
@@ -73,11 +78,15 @@ public class AuthService {
 
         userRepository.findByEmail(email.trim()).ifPresent(user -> {
             String token = generateSecureToken();
-            String cacheKey = buildPasswordResetCacheKey(token);
-            redisTemplate.opsForValue().set(
-                    cacheKey,
-                    user.getId(),
-                    Duration.ofMinutes(passwordResetTokenTtlMinutes));
+            userActionTokenRepository.deleteByUserAndPurposeAndConsumedAtIsNull(
+                    user,
+                    UserActionTokenPurpose.PASSWORD_RESET);
+            userActionTokenRepository.save(UserActionToken.builder()
+                    .tokenHash(hashToken(token))
+                    .purpose(UserActionTokenPurpose.PASSWORD_RESET)
+                    .expiresAt(LocalDateTime.now().plusMinutes(passwordResetTokenTtlMinutes))
+                    .user(user)
+                    .build());
 
             String resetLink = frontendUrl + "/reset-password?token=" + token;
             emailService.sendPasswordResetEmail(user.getEmail(), resetLink);
@@ -90,17 +99,19 @@ public class AuthService {
             throw new InvalidParamException("Mật khẩu mới và xác nhận mật khẩu không khớp");
         }
 
-        String cacheKey = buildPasswordResetCacheKey(dto.getToken());
-        String userId = redisTemplate.opsForValue().get(cacheKey);
-        if (userId == null) {
+        UserActionToken actionToken = userActionTokenRepository
+                .findByTokenHashAndPurpose(hashToken(dto.getToken()), UserActionTokenPurpose.PASSWORD_RESET)
+                .orElse(null);
+        if (actionToken == null || actionToken.getConsumedAt() != null || actionToken.getExpiresAt().isBefore(LocalDateTime.now())) {
             throw new InvalidParamException("Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn");
         }
 
-        User user = userRepository.findById(userId)
+        User user = userRepository.findById(actionToken.getUser().getId())
                 .orElseThrow(() -> new DataNotFoundException("User not found"));
         user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
         userRepository.save(user);
-        redisTemplate.delete(cacheKey);
+        actionToken.setConsumedAt(LocalDateTime.now());
+        userActionTokenRepository.save(actionToken);
     }
 
     private String generateSecureToken() {
@@ -109,7 +120,17 @@ public class AuthService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
     }
 
-    private String buildPasswordResetCacheKey(String token) {
-        return PASSWORD_RESET_KEY_PREFIX + token;
+    private String hashToken(String token) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available", e);
+        }
     }
 }

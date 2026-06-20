@@ -62,7 +62,7 @@ public class User extends BaseEntity implements UserDetails {
     @Column(name = "google_id", length = 255)
     private String googleId;
 
-    @Column(name = "gender", nullable = false)
+    @Column(name = "gender")
     private Boolean gender;
 
     @Enumerated(EnumType.STRING)

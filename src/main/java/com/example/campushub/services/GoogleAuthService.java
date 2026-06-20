@@ -2,11 +2,14 @@ package com.example.campushub.services;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Base64;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -23,6 +26,8 @@ import tools.jackson.databind.JsonNode;
 @Service
 @RequiredArgsConstructor
 public class GoogleAuthService {
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     @Value("${spring.security.oauth2.client.registration.google.client-id}")
     private String clientId;
 
@@ -35,6 +40,7 @@ public class GoogleAuthService {
     private String scope = "openid email profile";
 
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     public String generateAuthUrl(){
         return "https://accounts.google.com/o/oauth2/v2/auth" +
@@ -86,12 +92,14 @@ public class GoogleAuthService {
         String picture = userInfo.get("picture").asText();
 
         // 3. Lưu hoặc cập nhật vào DB
-        User user = userRepository.findByEmail(email).orElse(
+        User user = userRepository.findByEmail(email).orElseGet(() ->
                 User.builder()
                         .googleId(googleId)
                         .email(email)
                         .fullName(name)
                         .avatarUrl(picture)
+                        .password(passwordEncoder.encode(generateRandomPassword()))
+                        .gender(null)
                         .role(UserRole.USER) // User
                         .build()
         );
@@ -101,5 +109,11 @@ public class GoogleAuthService {
         if(user.getAvatarUrl() == null)
             user.setAvatarUrl(picture);
         return userRepository.save(user);
+    }
+
+    private String generateRandomPassword() {
+        byte[] randomBytes = new byte[32];
+        SECURE_RANDOM.nextBytes(randomBytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
     }
 }

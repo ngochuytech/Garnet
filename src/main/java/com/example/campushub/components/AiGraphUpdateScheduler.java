@@ -10,12 +10,12 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class AiGraphUpdateScheduler {
 
-    // Chạy 1 tiếng 1 lần (3600000 ms)
-    @Scheduled(fixedRate = 3600000)
+    // Chạy 5 phút 1 lần (ms)
+    @Scheduled(fixedRate = 300000)
     public void updateAiGraph() {
         try {
             RestTemplate restTemplate = new RestTemplate();
-            String aiUrl = "http://localhost:8000/reload"; 
+            String aiUrl = "http://localhost:8000/reload?wait=false"; 
             
             log.info("Bắt đầu gọi API cập nhật Graph phía AI: {}", aiUrl);
             String response = restTemplate.postForObject(aiUrl, null, String.class);
@@ -26,3 +26,4 @@ public class AiGraphUpdateScheduler {
         }
     }
 }
+    

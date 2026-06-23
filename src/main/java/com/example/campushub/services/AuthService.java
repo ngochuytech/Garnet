@@ -100,7 +100,7 @@ public class AuthService {
         }
 
         UserActionToken actionToken = userActionTokenRepository
-                .findByTokenHashAndPurpose(hashToken(dto.getToken()), UserActionTokenPurpose.PASSWORD_RESET)
+                .findByTokenHashAndPurposeForUpdate(hashToken(dto.getToken()), UserActionTokenPurpose.PASSWORD_RESET)
                 .orElse(null);
         if (actionToken == null || actionToken.getConsumedAt() != null || actionToken.getExpiresAt().isBefore(LocalDateTime.now())) {
             throw new InvalidParamException("Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn");

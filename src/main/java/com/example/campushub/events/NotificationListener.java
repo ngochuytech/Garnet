@@ -3,11 +3,13 @@ package com.example.campushub.events;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
-import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ContentStatus;
@@ -34,8 +36,8 @@ public class NotificationListener {
     private final SimpMessagingTemplate messagingTemplate;
 
     @Async
-    @EventListener
-    @Transactional("transactionManager")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @Transactional(value = "transactionManager", propagation = Propagation.REQUIRES_NEW)
     public void handleNotificationEvent(NotificationEvent event) {
         try {
             User actor = userRepository.findById(event.getActorId()).orElse(null);
@@ -104,10 +106,8 @@ public class NotificationListener {
                     }
 
                     notif.setRead(false);
-
                     notificationRepository.save(notif);
 
-                    // Đẩy thông báo mới cập nhật về Frontend qua WebSocket dưới dạng DTO
                     messagingTemplate.convertAndSendToUser(
                             event.getRecipientName(),
                             "/queue/notifications",
@@ -156,12 +156,11 @@ public class NotificationListener {
                             .build();
                 }
                 notificationRepository.save(notif);
-                // Đẩy thông báo mới cập nhật về Frontend qua WebSocket dưới dạng DTO
+                
                 messagingTemplate.convertAndSendToUser(
                         event.getRecipientName(),
                         "/queue/notifications",
                         NotificationResponse.fromEntity(notif));
-
                 return;
             } else {
                 Notification notif = Notification.builder()

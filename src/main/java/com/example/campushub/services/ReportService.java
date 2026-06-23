@@ -270,8 +270,6 @@ public class ReportService {
 
         Post post = postRepository.findById(report.getTargetId())
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết liên quan!"));
-        post.setStatus(ContentStatus.REPORTED);
-
         if (!isReporterAdmin) {
             Report adminReport = Report.builder()
                     .targetId(post.getId())
@@ -287,12 +285,7 @@ public class ReportService {
             reportRepository.save(adminReport);
         }
 
-        try {
-            postNeo4jRepository.updatePostStatus(post.getId(), ContentStatus.REPORTED.name());
-        } catch (Exception e) {
-            throw new Exception("Báo cáo đã được giải quyết nhưng có lỗi khi cập nhật trạng thái bài viết trên Neo4j: "
-                    + e.getMessage());
-        }
+        markPostReportedAndSynchronize(post);
     }
 
     @Transactional(value = "transactionManager", readOnly = true)
@@ -328,14 +321,7 @@ public class ReportService {
                 .build();
         reportRepository.save(adminReport);
         
-        post.setStatus(ContentStatus.REPORTED);
-
-        try {
-            postNeo4jRepository.updatePostStatus(postId, ContentStatus.REPORTED.name());
-        } catch (Exception e) {
-            throw new Exception("Gỡ bài viết thành công nhưng có lỗi khi cập nhật trạng thái trên Neo4j: "
-                    + e.getMessage());
-        }
+        markPostReportedAndSynchronize(post);
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -391,6 +377,26 @@ public class ReportService {
                 .message(message)
                 .build();
         eventPublisher.publishEvent(event);
+    }
+
+    private void markPostReportedAndSynchronize(Post post) {
+        ContentStatus previousStatus = post.getStatus();
+        post.setStatus(ContentStatus.REPORTED);
+        postRepository.saveAndFlush(post);
+
+        try {
+            long updatedPostCount = postNeo4jRepository.updatePostStatus(post.getId(), ContentStatus.REPORTED.name());
+            if (updatedPostCount != 1) {
+                throw new IllegalStateException("Neo4j did not update the reported post status");
+            }
+        } catch (Exception e) {
+            try {
+                postNeo4jRepository.updatePostStatus(post.getId(), previousStatus.name());
+            } catch (Exception compensationException) {
+                e.addSuppressed(compensationException);
+            }
+            throw new RuntimeException("Failed to synchronize reported post status with Neo4j", e);
+        }
     }
 
     private void hideActiveCommentTree(Comment comment) {

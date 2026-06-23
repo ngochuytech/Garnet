@@ -23,6 +23,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import com.example.campushub.dtos.AiRecommendationResponse;
 import com.example.campushub.enums.NotificationType;
+import com.example.campushub.enums.UserStatus;
 import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.InvalidParamException;
@@ -41,12 +42,14 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class FollowService {
     private static final int WHO_TO_FOLLOW_LIMIT = 5;
+    private static final int WHO_TO_FOLLOW_CANDIDATE_LIMIT = 20;
 
     private final UserNeo4jRepository userNeo4jRepository;
     private final UserRepository userRepository;
     private final NotificationRepository notificationRepository;
     private final ApplicationEventPublisher eventPublisher;
 
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void followUser(String currentUserId, String targetUserId) throws Exception {
         if (currentUserId.equals(targetUserId)) {
             throw new InvalidParamException("Không thể tự theo dõi chính mình");
@@ -54,6 +57,10 @@ public class FollowService {
 
         User targetUser = userRepository.findById(targetUserId)
             .orElseThrow(() -> new DataNotFoundException("Người dùng bạn theo dõi không tồn tại"));
+
+        if (targetUser.getStatus() != UserStatus.ACTIVE) {
+            throw new InvalidParamException("Khong thể theo dõi người dùng chưa kích hoạt hoặc đã bị vô hiệu hóa");
+        }
 
         boolean isSuccess = userNeo4jRepository.followUser(currentUserId, targetUserId);
         if (!isSuccess) {
@@ -101,7 +108,7 @@ public class FollowService {
             RestTemplate restTemplate = new RestTemplate();
             UriComponentsBuilder uriBuilder = UriComponentsBuilder
                     .fromUriString("http://localhost:8000/recommend/{userId}")
-                    .queryParam("top_k", WHO_TO_FOLLOW_LIMIT)
+                    .queryParam("top_k", WHO_TO_FOLLOW_CANDIDATE_LIMIT)
                     .queryParam("exclude", "all");
 
             if (followedIds != null && !followedIds.isEmpty()) {
@@ -125,27 +132,20 @@ public class FollowService {
                     }
                 }
 
-                if (suggestedIds.size() < WHO_TO_FOLLOW_LIMIT) {
-                    suggestedIds = mergeSuggestionIds(suggestedIds, userNeo4jRepository.getRandomSuggestedUser(userId));
-                }
-            } else {
-                suggestedIds = userNeo4jRepository.getRandomSuggestedUser(userId);
             }
         } catch (Exception e) {
-            suggestedIds = userNeo4jRepository.getSuggestedUserByHooby(userId);
-            if (suggestedIds == null || suggestedIds.size() < WHO_TO_FOLLOW_LIMIT) {
-                suggestedIds = mergeSuggestionIds(suggestedIds, userNeo4jRepository.getRandomSuggestedUser(userId));
-            }
+            suggestedIds = userNeo4jRepository.getSuggestedUserByHooby(userId, WHO_TO_FOLLOW_CANDIDATE_LIMIT);
         }
-        
-        if (suggestedIds == null) return java.util.Collections.emptyList();
 
-        List<User> users = userRepository.findAllById(suggestedIds);
-        Map<String, User> userMap = users.stream().collect(Collectors.toMap(User::getId, user -> user));
-        
-        return suggestedIds.stream()
-                .map(userMap::get)
-                .filter(Objects::nonNull)
+        List<User> eligibleUsers = findEligibleSuggestionUsers(suggestedIds, userId, followedIds);
+        if (eligibleUsers.size() < WHO_TO_FOLLOW_LIMIT) {
+            List<String> fallbackIds = userNeo4jRepository.getRandomSuggestedUser(
+                    userId, WHO_TO_FOLLOW_CANDIDATE_LIMIT);
+            eligibleUsers = findEligibleSuggestionUsers(
+                    mergeSuggestionIds(suggestedIds, fallbackIds), userId, followedIds);
+        }
+
+        return eligibleUsers.stream()
                 .map(user -> {
                     FollowResponse.FollowResponseBuilder builder = FollowResponse.builder()
                             .id(user.getId())
@@ -166,12 +166,8 @@ public class FollowService {
     List<String> mergeSuggestionIds(List<String> primaryIds, List<String> fallbackIds) {
         List<String> mergedIds = new ArrayList<>();
         addSuggestionIds(mergedIds, primaryIds);
-        if (mergedIds.size() < WHO_TO_FOLLOW_LIMIT) {
-            addSuggestionIds(mergedIds, fallbackIds);
-        }
-        return mergedIds.size() > WHO_TO_FOLLOW_LIMIT
-                ? mergedIds.subList(0, WHO_TO_FOLLOW_LIMIT)
-                : mergedIds;
+        addSuggestionIds(mergedIds, fallbackIds);
+        return mergedIds;
     }
 
     private void addSuggestionIds(List<String> targetIds, List<String> sourceIds) {
@@ -182,10 +178,31 @@ public class FollowService {
             if (id != null && !id.isBlank() && !targetIds.contains(id)) {
                 targetIds.add(id);
             }
-            if (targetIds.size() == WHO_TO_FOLLOW_LIMIT) {
-                return;
-            }
         }
+    }
+
+    private List<User> findEligibleSuggestionUsers(
+            List<String> candidateIds,
+            String currentUserId,
+            List<String> followedIds) {
+        if (candidateIds == null || candidateIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Set<String> followedIdSet = followedIds == null ? Collections.emptySet() : new HashSet<>(followedIds);
+        Map<String, User> userMap = userRepository.findAllById(candidateIds).stream()
+                .collect(Collectors.toMap(User::getId, user -> user));
+
+        return candidateIds.stream()
+                .filter(Objects::nonNull)
+                .filter(id -> !id.isBlank())
+                .filter(id -> !id.equals(currentUserId))
+                .filter(id -> !followedIdSet.contains(id))
+                .map(userMap::get)
+                .filter(Objects::nonNull)
+                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
+                .limit(WHO_TO_FOLLOW_LIMIT)
+                .toList();
     }
 
     List<String> buildSuggestionReasons(AiRecommendationResponse.Recommendation recommendation) {

@@ -162,7 +162,7 @@ public class CommentService {
 
     @Transactional("transactionManager")
     public void likeComment(User user, String commentId) throws Exception {
-        Comment comment = commentRepository.findById(commentId)
+        Comment comment = commentRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận"));
         CommentReaction commentReaction = commentReactionRepository.findByCommentAndUser(comment, user);
 
@@ -208,7 +208,7 @@ public class CommentService {
 
     @Transactional("transactionManager")
     public void dislikeComment(User user, String commentId) throws Exception {
-        Comment comment = commentRepository.findById(commentId)
+        Comment comment = commentRepository.findByIdForUpdate(commentId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận"));
         CommentReaction commentReaction = commentReactionRepository.findByCommentAndUser(comment, user);
 

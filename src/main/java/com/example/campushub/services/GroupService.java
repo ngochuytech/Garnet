@@ -187,13 +187,7 @@ public class GroupService {
                 .status(GroupStatus.ACTIVE)
                 .build();
 
-        group = groupRepository.save(group);
-
-        GroupNode groupNode = GroupNode.builder()
-                .id(group.getId())
-                .name(group.getName())
-                .build();
-        groupNeo4jRepository.save(groupNode);
+        group = groupRepository.saveAndFlush(group);
 
         GroupMember leaderMember = GroupMember.builder()
                 .id(new GroupMemberId(group.getId(), user.getId()))
@@ -204,8 +198,27 @@ public class GroupService {
                 .joinedAt(LocalDateTime.now())
                 .build();
 
-        groupMemberRepository.save(leaderMember);
-        groupNeo4jRepository.addUserToGroup(user.getId(), group.getId());
+        groupMemberRepository.saveAndFlush(leaderMember);
+
+        boolean graphCreationAttempted = false;
+        try {
+            graphCreationAttempted = true;
+            GroupNode groupNode = GroupNode.builder()
+                    .id(group.getId())
+                    .name(group.getName())
+                    .build();
+            groupNeo4jRepository.save(groupNode);
+            groupNeo4jRepository.addUserToGroup(user.getId(), group.getId());
+        } catch (Exception e) {
+            if (graphCreationAttempted) {
+                try {
+                    groupNeo4jRepository.deleteGroupById(group.getId());
+                } catch (Exception compensationError) {
+                    e.addSuppressed(compensationError);
+                }
+            }
+            throw new RuntimeException("Tạo nhóm thất bại tại Neo4j", e);
+        }
 
         return leaderMember;
     }
@@ -419,11 +432,15 @@ public class GroupService {
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void approveJoinRequest(User currentUser, String groupId, String targetUserId) throws Exception {
+        // Serialize changes to this group's membership count.
+        Group group = groupRepository.findByIdForUpdate(groupId)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
                 .orElseThrow(() -> new Exception("Bạn không phải là thành viên của nhóm này"));
 
-        assertGroupActive(currentUserMember.getGroup());
+        assertGroupActive(group);
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
             throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền duyệt thành viên");
@@ -433,8 +450,8 @@ public class GroupService {
         GroupMember targetMember = groupMemberRepository.findById(targetId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy yêu cầu tham gia của người dùng này"));
 
-        if (targetMember.getStatus() == MemberStatus.APPROVED) {
-            throw new Exception("Người dùng này đã là thành viên của nhóm");
+        if (targetMember.getStatus() != MemberStatus.PENDING) {
+            throw new InvalidContentStateException("Yêu cầu tham gia không còn chờ duyệt");
         }
 
         targetMember.setStatus(MemberStatus.APPROVED);
@@ -442,7 +459,6 @@ public class GroupService {
 
         groupMemberRepository.save(targetMember);
 
-        Group group = currentUserMember.getGroup();
         group.setMemberCount(group.getMemberCount() + 1);
         groupRepository.save(group);
 
@@ -488,11 +504,14 @@ public class GroupService {
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void kickMember(User currentUser, String groupId, String targetUserId) throws Exception {
+        Group group = groupRepository.findByIdForUpdate(groupId)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
                 .orElseThrow(() -> new Exception("Bạn không phải là thành viên của nhóm này"));
 
-        assertGroupActive(currentUserMember.getGroup());
+        assertGroupActive(group);
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
             throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền đuổi thành viên");
@@ -512,7 +531,6 @@ public class GroupService {
 
         groupMemberRepository.delete(targetMember);
 
-        Group group = currentUserMember.getGroup();
         group.setMemberCount(group.getMemberCount() - 1);
         groupRepository.save(group);
 
@@ -527,6 +545,9 @@ public class GroupService {
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void leaveGroup(User currentUser, String groupId) throws Exception {
+        Group group = groupRepository.findByIdForUpdate(groupId)
+                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
                 .orElseThrow(() -> new RuntimeException("Bạn chưa tham gia nhóm này"));
@@ -535,17 +556,20 @@ public class GroupService {
             throw new ForbiddenAccessException("Trưởng nhóm không thể tự rời nhóm. Hãy nhường quyền cho người khác trước.");
         }
 
+        boolean wasApprovedMember = currentUserMember.getStatus() == MemberStatus.APPROVED;
         groupMemberRepository.delete(currentUserMember);
 
-        Group group = currentUserMember.getGroup();
-        group.setMemberCount(group.getMemberCount() - 1);
-        groupRepository.save(group);
-
-        groupNeo4jRepository.removeUserFromGroup(currentUser.getId(), groupId);
+        if (wasApprovedMember) {
+            group.setMemberCount(group.getMemberCount() - 1);
+            groupRepository.save(group);
+            groupNeo4jRepository.removeUserFromGroup(currentUser.getId(), groupId);
+        }
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void deleteGroup(User currentUser, String groupId) throws Exception {
+        Group group = groupRepository.findByIdForUpdate(groupId)
+                .orElseThrow(() -> new DataNotFoundException("Group not found"));
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
                 .orElseThrow(() -> new ForbiddenAccessException("Bạn không phải là thành viên của nhóm này"));
@@ -556,9 +580,9 @@ public class GroupService {
             throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền xóa nhóm");
         }
 
-        Group group = currentUserMember.getGroup();
+        assertGroupActive(group);
         group.setStatus(GroupStatus.DELETED);
-        groupRepository.save(group);
+        groupRepository.saveAndFlush(group);
         try {
             groupNeo4jRepository.deleteGroupById(groupId);
         } catch (Exception e) {
@@ -634,6 +658,8 @@ public class GroupService {
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public GroupResponse updateGroupName(User currentUser, String groupId, String name) throws Exception {
+        Group group = groupRepository.findByIdForUpdate(groupId)
+                .orElseThrow(() -> new DataNotFoundException("Group not found"));
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
                 .orElseThrow(() -> new ForbiddenAccessException("Bạn không phải là thành viên của nhóm này"));
@@ -644,9 +670,9 @@ public class GroupService {
             throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền thay đổi tên nhóm");
         }
 
-        Group group = currentUserMember.getGroup();
+        assertGroupActive(group);
         group.setName(name);
-        groupRepository.save(group);
+        groupRepository.saveAndFlush(group);
         
         try {
             groupNeo4jRepository.updateGroupName(groupId, name);

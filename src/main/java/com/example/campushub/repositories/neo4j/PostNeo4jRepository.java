@@ -30,6 +30,9 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         "MERGE (p)-[:POSTED_IN]->(g)")
         void linkPostToGroup(@Param("postId") String postId, @Param("groupId") String groupId);
 
+        @Query("MATCH (p:Post {id: $postId}) DETACH DELETE p")
+        void deletePostById(@Param("postId") String postId);
+
         @Query("MATCH (u:User {id: $userId}), (originalP:Post {id: $originalPostId}) " +
                         "MERGE (sharedP:Post {id: $sharedPostId}) " +
                         "ON CREATE SET sharedP.status = 'ACTIVE', sharedP.createdAt = $createdAt " +
@@ -37,8 +40,9 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         "MERGE (sharedP)-[:QUOTES]->(originalP) " +
                         "WITH sharedP " +
                         "MATCH (t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) WHERE t.name IN $tagNames " +
-                        "MERGE (sharedP)-[:HAS_TAG]->(t)")
-        void createSharedPost(
+                        "MERGE (sharedP)-[:HAS_TAG]->(t) " +
+                        "RETURN count(DISTINCT sharedP)")
+        long createSharedPost(
                         @Param("userId") String userId,
                         @Param("sharedPostId") String sharedPostId,
                         @Param("originalPostId") String originalPostId,
@@ -46,8 +50,9 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         @Param("createdAt") LocalDateTime createdAt);
 
         @Query("MATCH (p:Post {id: $postId}) " +
-                        "SET p.status = $status")
-        void updatePostStatus(String postId, String status);
+                        "SET p.status = $status " +
+                        "RETURN count(p)")
+        long updatePostStatus(String postId, String status);
 
         @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'}) " +
                         "WITH DISTINCT p " +

@@ -130,13 +130,22 @@ public class PostService {
         }
 
         postRepository.save(post);
+        boolean neo4jPostCreated = false;
         try {
             postNeo4jRepository.createPost(user.getId(), post.getId(), dto.getTags(), post.getCreatedAt());
+            neo4jPostCreated = true;
             if (dto.getGroupId() != null) {
                 postNeo4jRepository.linkPostToGroup(post.getId(), dto.getGroupId());
             }
         } catch (Exception e) {
-            throw new RuntimeException("Lỗi khi tạo bài viết trên Neo4j: " + e.getMessage());
+            if (neo4jPostCreated) {
+                try {
+                    postNeo4jRepository.deletePostById(post.getId());
+                } catch (Exception compensationError) {
+                    e.addSuppressed(compensationError);
+                }
+            }
+            throw new RuntimeException("Lỗi khi tạo bài viết trên Neo4j: " + e.getMessage(), e);
         }
     }
 
@@ -410,17 +419,30 @@ public class PostService {
                 .user(user)
                 .sharedPost(originalPost)
                 .build();
-        postRepository.save(sharedPost);
+        postRepository.saveAndFlush(sharedPost);
+        boolean graphCreationAttempted = false;
         try {
-            postNeo4jRepository.createSharedPost(user.getId(), sharedPost.getId(), originalPost.getId(), dto.getTags(),
-                    sharedPost.getCreatedAt());
+            graphCreationAttempted = true;
+            long createdPostCount = postNeo4jRepository.createSharedPost(
+                    user.getId(), sharedPost.getId(), originalPost.getId(), dto.getTags(), sharedPost.getCreatedAt());
+            if (createdPostCount != 1) {
+                throw new IllegalStateException("Neo4j did not create the shared-post graph relation");
+            }
         } catch (Exception e) {
+            if (graphCreationAttempted) {
+                try {
+                    postNeo4jRepository.deletePostById(sharedPost.getId());
+                } catch (Exception compensationException) {
+                    e.addSuppressed(compensationException);
+                }
+            }
             throw new RuntimeException("Lỗi khi tạo bài viết trên Neo4j: " + e.getMessage());
         }
 
         if (!user.getId().equals(originalPost.getUser().getId())) {
             NotificationEvent event = NotificationEvent.builder()
                     .recipientId(originalPost.getUser().getId())
+                    .recipientName(originalPost.getUser().getUsername())
                     .actorId(user.getId())
                     .type(NotificationType.SHARE_POST)
                     .targetType("POST")
@@ -498,11 +520,19 @@ public class PostService {
 
         post.setStatus(ContentStatus.DELETED);
 
-        postRepository.save(post);
+        postRepository.saveAndFlush(post);
 
         try {
-            postNeo4jRepository.updatePostStatus(postId, ContentStatus.DELETED.name());
+            long updatedPostCount = postNeo4jRepository.updatePostStatus(postId, ContentStatus.DELETED.name());
+            if (updatedPostCount != 1) {
+                throw new IllegalStateException("Neo4j did not update the deleted post status");
+            }
         } catch (Exception e) {
+            try {
+                postNeo4jRepository.updatePostStatus(postId, ContentStatus.ACTIVE.name());
+            } catch (Exception compensationException) {
+                e.addSuppressed(compensationException);
+            }
             throw new RuntimeException("Lỗi cập nhật trạng thái bài viết trên Neo4j: " + e.getMessage());
         }
     }
@@ -902,12 +932,20 @@ public class PostService {
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết"));
 
         post.setStatus(ContentStatus.ACTIVE);
-        postRepository.save(post);
+        postRepository.saveAndFlush(post);
 
         try {
-            postNeo4jRepository.updatePostStatus(postId, ContentStatus.ACTIVE.name());
+            long updatedPostCount = postNeo4jRepository.updatePostStatus(postId, ContentStatus.ACTIVE.name());
+            if (updatedPostCount != 1) {
+                throw new IllegalStateException("Neo4j did not restore the post status");
+            }
         } catch (Exception e) {
-            throw new Exception("Kích hoạt bài viết thành công nhưng lỗi cập nhật Neo4j: " + e.getMessage());
+            try {
+                postNeo4jRepository.updatePostStatus(postId, ContentStatus.DELETED.name());
+            } catch (Exception compensationException) {
+                e.addSuppressed(compensationException);
+            }
+            throw new RuntimeException("Lỗi khôi phục trạng thái bài viết trên Neo4j", e);
         }
     }
 }

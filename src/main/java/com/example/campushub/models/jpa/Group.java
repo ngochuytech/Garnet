@@ -7,7 +7,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "groups")
+@Table(name = "`groups`")
 @Data
 @EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor

@@ -17,6 +17,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.example.campushub.components.CustomAccessDeniedHandler;
 import com.example.campushub.exceptions.auth.CustomAuthenticationEntryPoint;
 import com.example.campushub.filter.JwtAuthFilter;
 import com.example.campushub.repositories.jpa.UserRepository;
@@ -30,6 +31,7 @@ public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
     private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
+    private final CustomAccessDeniedHandler customAccessDeniedHandler;
     private final UserRepository userRepository;
 
     @Bean
@@ -52,7 +54,9 @@ public class SecurityConfig {
                 .cors(cors -> {
                 })
                 .exceptionHandling(exception -> exception
-                        .authenticationEntryPoint(customAuthenticationEntryPoint))
+                        .authenticationEntryPoint(customAuthenticationEntryPoint)
+                        .accessDeniedHandler(customAccessDeniedHandler)
+                    )   
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/**").permitAll()
                         .requestMatchers("/metadata/**").permitAll()

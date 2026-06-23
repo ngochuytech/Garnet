@@ -104,21 +104,14 @@ public class UserService {
         userRepository.save(user);
     }
 
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void setupUserProfile(User user, String major, Set<String> hobbies) {
         user.setDepartment(major);
-        user = userRepository.save(user);
+        userRepository.save(user);
 
         try {
-            if (major != null && !major.trim().isEmpty()) {
-                userNeo4jRepository.updateUserMajor(user.getId(), major);
-            }
-            if (hobbies != null && !hobbies.isEmpty()) {
-                userNeo4jRepository.updateUserTags(user.getId(), hobbies);
-            }
+            userNeo4jRepository.updateUserProfileGraph(user.getId(), major, hobbies);
         } catch (Exception e) {
-            // Rollback thủ công trên JPA nếu thao tác trên Neo4j thất bại
-            user.setDepartment(null);
-            userRepository.save(user);
             throw new RuntimeException("Cập nhật hồ sơ thất bại tại Neo4j", e);
         }
     }

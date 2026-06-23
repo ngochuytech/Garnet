@@ -2,10 +2,13 @@ package com.example.campushub.repositories.jpa;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,6 +20,10 @@ import com.example.campushub.repositories.jpa.projections.PostCountProjection;
 
 public interface CommentRepository extends JpaRepository<Comment, String> {
     Page<Comment> findByUser(User user, Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM Comment c WHERE c.id = :commentId")
+    Optional<Comment> findByIdForUpdate(@Param("commentId") String commentId);
 
     // Load n comment đầu tiên của một bài viết (mới nhất) và chỉ lấy comment gốc (Ko lấy reply)
     List<Comment> findByPostIdAndParentCommentIsNullAndStatusOrderByCreatedAtDesc(

@@ -1,0 +1,26 @@
+spring:
+  jpa:
+    show-sql: false
+  mail:
+    host: localhost
+    port: 2525
+    username: e2e
+    password: e2e
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: e2e-google-client
+            client-secret: e2e-google-secret
+
+cloudinary:
+  cloud-name: e2e
+  api-key: e2e
+  api-secret: e2e
+
+jwt:
+  secret: 4Y2YQZk1RfpWhwygV0PTzhV0lUAZaYjU9euZI1uvx8sNqN9kTwovILo6i2Td5fa5
+
+app:
+  frontend-url: http://localhost:5173

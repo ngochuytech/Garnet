@@ -45,6 +45,7 @@ public class AuthService {
     @Value("${app.password-reset.token-ttl-minutes:15}")
     private long passwordResetTokenTtlMinutes;
 
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void register(RegisterDTO registerDTO) throws Exception {
         if(userRepository.existsByEmail(registerDTO.getEmail())) {
             throw new Exception("Email already exists");
@@ -56,7 +57,7 @@ public class AuthService {
             .password(passwordEncoder.encode(registerDTO.getPassword()))
             .build();
 
-        userRepository.save(newUser);
+        userRepository.saveAndFlush(newUser);
     }
 
     public String login(LoginDTO loginDTO) throws Exception {

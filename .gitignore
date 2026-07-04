@@ -33,3 +33,4 @@ build/
 .vscode/
 
 neo4j.db
+.env

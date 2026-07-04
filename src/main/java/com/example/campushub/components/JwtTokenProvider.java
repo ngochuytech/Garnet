@@ -56,6 +56,7 @@ public class JwtTokenProvider {
                 .subject(username)
                 .issuedAt(new Date())
                 .expiration(expireDate)
+                .claim("type", "access")
                 .signWith(key())
                 .compact();
     }
@@ -71,6 +72,7 @@ public class JwtTokenProvider {
                 .subject(username)
                 .issuedAt(new Date())
                 .expiration(expireDate)
+                .claim("type", "access")
                 .signWith(key())
                 .compact();
     }
@@ -107,33 +109,38 @@ public class JwtTokenProvider {
                 .getSubject();
     }
 
-    public boolean validateToken(String token, User user) {
+    public boolean validateAccessToken(String token, User user) {
         try {
-            Claims claims = this.extractAllClaims(token);
+            Claims claims = extractAllClaims(token);
             String type = claims.get("type", String.class);
 
-            // If it's a refresh token, validate against DB using jti
             if ("refresh".equals(type)) {
-                return validateRefreshToken(token, user);
+                throw new InvalidTokenException("Refresh token cannot be used as access token");
             }
 
-            // Otherwise treat as stateless access token: check signature, expiration and subject
-            String subject = claims.getSubject();
-            if (user.getStatus().equals(UserStatus.INACTIVE)) {
-                throw new UnauthorizedException("Tài khoản đã bị vô hiệu hóa");
-            } else if (user.getStatus().equals(UserStatus.BANNED)) {
-                throw new UnauthorizedException("Tài khoản đã bị cấm");
+            if (type != null && !"access".equals(type)){
+                throw new InvalidTokenException("Invalid token type");
             }
+
+            String subject = claims.getSubject();
+            if(user.getStatus().equals(UserStatus.INACTIVE)){
+                throw new UnauthorizedException("This account has been disabled");
+            } else if(user.getStatus().equals(UserStatus.BANNED)){
+                throw new UnauthorizedException("This account has been banned");
+            }
+
             Date expiration = claims.getExpiration();
             if (expiration == null || expiration.before(new Date())) {
-                throw new ExpiredTokenException("Token đã hết hạn. Vui lòng đăng nhập lại");
+                throw new ExpiredTokenException("Token is expired! Try login again!");
             }
+
             return subject.equals(user.getUsername());
         } catch (ExpiredJwtException e) {
-            throw new ExpiredTokenException("Token đã hết hạn. Vui lòng đăng nhập lại");
-        } catch (JwtException e) {
-            throw new InvalidTokenException("Token không hợp lệ");
+            throw new ExpiredTokenException("Token is expired! Try login again");
+        } catch (JwtException e){
+            throw new InvalidTokenException("Invalid Token");
         }
+
     }
 
     // Save refresh token into DB (store token string, jti, expiry and owner)

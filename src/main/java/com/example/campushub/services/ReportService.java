@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.dtos.admin.AdminGroupReportDTO;
 import com.example.campushub.dtos.admin.AdminReportDTO;
+import com.example.campushub.dtos.record.posts.PostStatusChangedPayload;
 import com.example.campushub.dtos.users.CreateReportCommentDTO;
 import com.example.campushub.dtos.users.CreateReportGroupDTO;
 import com.example.campushub.dtos.users.CreateReportPostDTO;
@@ -18,6 +19,7 @@ import com.example.campushub.enums.GroupModerationAction;
 import com.example.campushub.enums.GroupStatus;
 import com.example.campushub.enums.MemberRole;
 import com.example.campushub.enums.MemberStatus;
+import com.example.campushub.enums.Neo4jEventType;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReportStatus;
 import com.example.campushub.enums.ReportType;
@@ -28,33 +30,44 @@ import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
+import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.Report;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.GroupMemberRepository;
 import com.example.campushub.repositories.jpa.GroupRepository;
+import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.ReportRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
-import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
 import com.example.campushub.responses.ReportResponse;
 import com.example.campushub.responses.ReportTargetResponse;
 import com.example.campushub.responses.admin.AdminReportResponse;
 
 import lombok.RequiredArgsConstructor;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
 public class ReportService {
+    private final Neo4jSyncEventRepository neo4jSyncEventRepository;
     private final ReportRepository reportRepository;
     private final PostRepository postRepository;
     private final CommentRepository commentRepository;
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
-    private final PostNeo4jRepository postNeo4jRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
+
+    private String toJson(Object object) {
+        try {
+            return objectMapper.writeValueAsString(object);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to convert object to JSON", e);
+        }
+    }
 
     private ReportType parseAndValidateTargetType(String targetType) {
         try {
@@ -90,7 +103,8 @@ public class ReportService {
         Post post = postRepository.findById(dto.getTargetId())
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết cần báo cáo!"));
 
-        if (reportRepository.existsByReporterAndTargetTypeAndTargetIdAndStatus(reporter, type, post.getId(), ReportStatus.OPEN)) {
+        if (reportRepository.existsByReporterAndTargetTypeAndTargetIdAndStatus(reporter, type, post.getId(),
+                ReportStatus.OPEN)) {
             throw new InvalidParamException("Bạn đã báo cáo bài viết này rồi!");
         }
 
@@ -111,7 +125,8 @@ public class ReportService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm cần báo cáo!"));
 
-        if (reportRepository.existsByReporterAndTargetTypeAndTargetIdAndStatus(reporter, ReportType.GROUP, group.getId(), ReportStatus.OPEN)) {
+        if (reportRepository.existsByReporterAndTargetTypeAndTargetIdAndStatus(reporter, ReportType.GROUP,
+                group.getId(), ReportStatus.OPEN)) {
             throw new InvalidParamException("Bạn đã báo cáo nhóm này và báo cáo đang chờ xử lý!");
         }
 
@@ -207,20 +222,21 @@ public class ReportService {
             Group group = groupRepository.findById(report.getTargetId())
                     .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm liên quan!"));
             group.setStatus(GroupStatus.ARCHIVED);
-            reportRepository.updateExistingReportsStatus(report.getTargetId(), ReportType.GROUP, ReportStatus.RESOLVED, currentUser, adminNote);
-            
+            reportRepository.updateExistingReportsStatus(report.getTargetId(), ReportType.GROUP, ReportStatus.RESOLVED,
+                    currentUser, adminNote);
+
             if (!isReporterAdmin) {
                 Report adminReport = Report.builder()
-                    .targetId(group.getId())
-                    .targetType(ReportType.GROUP)
-                    .reporter(currentUser)
-                    .reportedUser(report.getReportedUser())
-                    .resolvedBy(currentUser)
-                    .adminNote(adminNote)
-                    .reason(dto.getReason() != null ? dto.getReason() : report.getReason())
-                    .description(report.getDescription())
-                    .status(ReportStatus.RESOLVED)
-                    .build();
+                        .targetId(group.getId())
+                        .targetType(ReportType.GROUP)
+                        .reporter(currentUser)
+                        .reportedUser(report.getReportedUser())
+                        .resolvedBy(currentUser)
+                        .adminNote(adminNote)
+                        .reason(dto.getReason() != null ? dto.getReason() : report.getReason())
+                        .description(report.getDescription())
+                        .status(ReportStatus.RESOLVED)
+                        .build();
                 reportRepository.save(adminReport);
             }
 
@@ -236,7 +252,8 @@ public class ReportService {
 
         if (report.getTargetType() == ReportType.COMMENT) {
             String targetCommentId = report.getTargetId();
-            reportRepository.updateExistingReportsStatus(targetCommentId, ReportType.COMMENT, ReportStatus.RESOLVED, currentUser, adminNote);
+            reportRepository.updateExistingReportsStatus(targetCommentId, ReportType.COMMENT, ReportStatus.RESOLVED,
+                    currentUser, adminNote);
 
             Comment comment = commentRepository.findById(targetCommentId)
                     .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận liên quan!"));
@@ -266,7 +283,8 @@ public class ReportService {
         }
 
         String targetPostId = report.getTargetId();
-        reportRepository.updateExistingReportsStatus(targetPostId, ReportType.POST, ReportStatus.RESOLVED, currentUser, adminNote);
+        reportRepository.updateExistingReportsStatus(targetPostId, ReportType.POST, ReportStatus.RESOLVED, currentUser,
+                adminNote);
 
         Post post = postRepository.findById(report.getTargetId())
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết liên quan!"));
@@ -306,9 +324,9 @@ public class ReportService {
     public void reportPostByAdmin(User admin, String postId, AdminReportDTO dto) throws Exception {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết"));
-        
+
         reportRepository.updateExistingReportsStatus(postId, ReportType.POST, ReportStatus.RESOLVED, admin, postId);
-        
+
         Report adminReport = Report.builder()
                 .targetId(postId)
                 .targetType(ReportType.POST)
@@ -320,7 +338,7 @@ public class ReportService {
                 .status(ReportStatus.RESOLVED)
                 .build();
         reportRepository.save(adminReport);
-        
+
         markPostReportedAndSynchronize(post);
     }
 
@@ -335,7 +353,8 @@ public class ReportService {
 
         GroupModerationAction action = dto.getAction() != null ? dto.getAction() : GroupModerationAction.ARCHIVE;
 
-        reportRepository.updateExistingReportsStatus(groupId, ReportType.GROUP, ReportStatus.RESOLVED, admin, dto.getAdminNotes());
+        reportRepository.updateExistingReportsStatus(groupId, ReportType.GROUP, ReportStatus.RESOLVED, admin,
+                dto.getAdminNotes());
 
         Report adminReport = Report.builder()
                 .targetId(groupId)
@@ -380,23 +399,15 @@ public class ReportService {
     }
 
     private void markPostReportedAndSynchronize(Post post) {
-        ContentStatus previousStatus = post.getStatus();
         post.setStatus(ContentStatus.REPORTED);
         postRepository.saveAndFlush(post);
 
-        try {
-            long updatedPostCount = postNeo4jRepository.updatePostStatus(post.getId(), ContentStatus.REPORTED.name());
-            if (updatedPostCount != 1) {
-                throw new IllegalStateException("Neo4j did not update the reported post status");
-            }
-        } catch (Exception e) {
-            try {
-                postNeo4jRepository.updatePostStatus(post.getId(), previousStatus.name());
-            } catch (Exception compensationException) {
-                e.addSuppressed(compensationException);
-            }
-            throw new RuntimeException("Failed to synchronize reported post status with Neo4j", e);
-        }
+        PostStatusChangedPayload payload = new PostStatusChangedPayload(post.getId(), ContentStatus.REPORTED);
+
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.POST_STATUS_CHANGED,
+                post.getId(),
+                toJson(payload)));
     }
 
     private void hideActiveCommentTree(Comment comment) {

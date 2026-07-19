@@ -24,12 +24,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.example.campushub.dtos.record.posts.PostStatusChangedPayload;
+import com.example.campushub.dtos.record.posts.PostSharedPayload;
 import com.example.campushub.dtos.record.posts.PostStats;
-import com.example.campushub.dtos.record.posts.PostTags;
 import com.example.campushub.dtos.users.CreatePostDTO;
 import com.example.campushub.dtos.users.CreateSharePostDTO;
 import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.enums.GroupStatus;
+import com.example.campushub.enums.MemberRole;
+import com.example.campushub.enums.MemberStatus;
+import com.example.campushub.enums.Neo4jEventType;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReactionType;
 import com.example.campushub.enums.UserStatus;
@@ -38,26 +42,29 @@ import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.ForbiddenAccessException;
 import com.example.campushub.exceptions.InvalidContentStateException;
 import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.models.jpa.Group;
+import com.example.campushub.models.jpa.GroupMember;
+import com.example.campushub.models.jpa.GroupMemberId;
+import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.PostReaction;
 import com.example.campushub.models.jpa.PostReactionId;
+import com.example.campushub.models.jpa.PostTag;
+import com.example.campushub.models.jpa.PostTagId;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.repositories.jpa.CommentRepository;
+import com.example.campushub.repositories.jpa.GroupMemberRepository;
+import com.example.campushub.repositories.jpa.GroupRepository;
+import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
 import com.example.campushub.repositories.jpa.PostReactionRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
-import com.example.campushub.repositories.jpa.CommentRepository;
+import com.example.campushub.repositories.jpa.PostTagRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
-import com.example.campushub.repositories.jpa.GroupMemberRepository;
-import com.example.campushub.models.jpa.GroupMember;
-import com.example.campushub.models.jpa.GroupMemberId;
-import com.example.campushub.models.jpa.Group;
-import com.example.campushub.enums.MemberRole;
-import com.example.campushub.enums.MemberStatus;
-import com.example.campushub.repositories.jpa.GroupRepository;
 import com.example.campushub.repositories.jpa.projections.PostCountProjection;
 import com.example.campushub.repositories.jpa.projections.PostReactionCountProjection;
+import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.repositories.neo4j.PostCursorProjection;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
-import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
 import com.example.campushub.responses.CursorPagedResponse;
 import com.example.campushub.responses.PostResponse;
@@ -65,6 +72,7 @@ import com.example.campushub.responses.admin.AdminPostResponse;
 
 import lombok.RequiredArgsConstructor;
 import net.datafaker.Faker;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -74,6 +82,7 @@ public class PostService {
 
     private final PostRepository postRepository;
     private final PostNeo4jRepository postNeo4jRepository;
+    private final PostTagRepository postTagRepository;
     private final InterestNeo4jRepository tagNeo4jRepository;
     private final UserNeo4jRepository userNeo4jRepository;
     private final UserRepository userRepository;
@@ -81,8 +90,10 @@ public class PostService {
     private final GroupMemberRepository groupMemberRepository;
     private final PostReactionRepository postReactionRepository;
     private final CommentRepository commentRepository;
+    private final Neo4jSyncEventRepository neo4jSyncEventRepository;
     private final FileUploadService fileUploadService;
     private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
     private final Faker faker;
 
     private ContentStatus parseAndValidateContentStatus(String status) {
@@ -93,6 +104,14 @@ public class PostService {
             return ContentStatus.valueOf(status.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new InvalidContentStateException("Tham số trạng thái bài viết không hợp lệ: " + status);
+        }
+    }
+
+    private String toJson(Object object) {
+        try {
+            return objectMapper.writeValueAsString(object);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to convert object to JSON", e);
         }
     }
 
@@ -130,23 +149,28 @@ public class PostService {
         }
 
         postRepository.save(post);
-        boolean neo4jPostCreated = false;
-        try {
-            postNeo4jRepository.createPost(user.getId(), post.getId(), dto.getTags(), post.getCreatedAt());
-            neo4jPostCreated = true;
-            if (dto.getGroupId() != null) {
-                postNeo4jRepository.linkPostToGroup(post.getId(), dto.getGroupId());
-            }
-        } catch (Exception e) {
-            if (neo4jPostCreated) {
-                try {
-                    postNeo4jRepository.deletePostById(post.getId());
-                } catch (Exception compensationError) {
-                    e.addSuppressed(compensationError);
-                }
-            }
-            throw new RuntimeException("Lỗi khi tạo bài viết trên Neo4j: " + e.getMessage(), e);
-        }
+
+        List<PostTag> postTags = dto.getTags().stream()
+                .map(tagName -> PostTag.builder()
+                        .id(new PostTagId(post.getId(), tagName))
+                        .post(post)
+                        .build())
+                .toList();
+        postTagRepository.saveAll(postTags);
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("postId", post.getId());
+        payload.put("authorId", user.getId());
+        payload.put("groupId", dto.getGroupId());
+        payload.put("tagNames", dto.getTags());
+        payload.put("createdAt", post.getCreatedAt());  
+
+        String payloadJson = toJson(payload);
+
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+            Neo4jEventType.POST_CREATED, 
+            post.getId(),
+            payloadJson));
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -419,25 +443,28 @@ public class PostService {
                 .user(user)
                 .sharedPost(originalPost)
                 .build();
-        postRepository.saveAndFlush(sharedPost);
-        boolean graphCreationAttempted = false;
-        try {
-            graphCreationAttempted = true;
-            long createdPostCount = postNeo4jRepository.createSharedPost(
-                    user.getId(), sharedPost.getId(), originalPost.getId(), dto.getTags(), sharedPost.getCreatedAt());
-            if (createdPostCount != 1) {
-                throw new IllegalStateException("Neo4j did not create the shared-post graph relation");
-            }
-        } catch (Exception e) {
-            if (graphCreationAttempted) {
-                try {
-                    postNeo4jRepository.deletePostById(sharedPost.getId());
-                } catch (Exception compensationException) {
-                    e.addSuppressed(compensationException);
-                }
-            }
-            throw new RuntimeException("Lỗi khi tạo bài viết trên Neo4j: " + e.getMessage());
-        }
+        postRepository.save(sharedPost);
+
+        List<PostTag> postTags = dto.getTags().stream()
+                .map(tagName -> PostTag.builder()
+                        .id(new PostTagId(sharedPost.getId(), tagName))
+                        .post(sharedPost)
+                        .build())
+                .toList();
+        postTagRepository.saveAll(postTags);
+
+        PostSharedPayload payload = new PostSharedPayload(
+            sharedPost.getId(),
+            user.getId(),
+            originalPost.getId(),
+            dto.getTags(),
+            sharedPost.getCreatedAt()
+        );
+
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+            Neo4jEventType.POST_SHARED, 
+            sharedPost.getId(), 
+            toJson(payload)));
 
         if (!user.getId().equals(originalPost.getUser().getId())) {
             NotificationEvent event = NotificationEvent.builder()
@@ -520,21 +547,15 @@ public class PostService {
 
         post.setStatus(ContentStatus.DELETED);
 
-        postRepository.saveAndFlush(post);
+        postRepository.save(post);
 
-        try {
-            long updatedPostCount = postNeo4jRepository.updatePostStatus(postId, ContentStatus.DELETED.name());
-            if (updatedPostCount != 1) {
-                throw new IllegalStateException("Neo4j did not update the deleted post status");
-            }
-        } catch (Exception e) {
-            try {
-                postNeo4jRepository.updatePostStatus(postId, ContentStatus.ACTIVE.name());
-            } catch (Exception compensationException) {
-                e.addSuppressed(compensationException);
-            }
-            throw new RuntimeException("Lỗi cập nhật trạng thái bài viết trên Neo4j: " + e.getMessage());
-        }
+        PostStatusChangedPayload payload = new PostStatusChangedPayload(
+            post.getId(),
+            ContentStatus.DELETED
+        );
+
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+            Neo4jEventType.POST_STATUS_CHANGED, post.getId(), toJson(payload)));
     }
 
     public CursorPagedResponse<PostResponse> getActivePostsByUserId(
@@ -747,16 +768,13 @@ public class PostService {
                 postIds.add(post.getSharedPost().getId());
             }
         }
-        List<PostTags> postNodes = postNeo4jRepository.findTagsByPostIds(postIds);
-        return postNodes.stream()
-                .collect(Collectors.toMap(
-                        PostTags::getPostId,
-                        proj -> {
-                            Set<String> tags = proj.getTagNames();
-                            return (tags == null || tags.isEmpty())
-                                    ? Collections.<String>emptyList()
-                                    : new ArrayList<>(tags);
-                        }));
+        List<PostTag> postTags = postTagRepository.findByIdPostIdIn(postIds);
+        Map<String, List<String>> tagsMap = new HashMap<>();
+        for(PostTag postTag: postTags){
+            tagsMap.computeIfAbsent(postTag.getId().getPostId(), ignored -> new ArrayList<>())
+                .add(postTag.getId().getTagName());
+        }
+        return tagsMap;
     }
 
     private Map<String, PostStats> getPostStatsMap(List<Post> posts) {

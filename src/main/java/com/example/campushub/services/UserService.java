@@ -15,17 +15,24 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.example.campushub.dtos.record.profiles.UserProfileUpdatedPayload;
 import com.example.campushub.dtos.users.UpdateInformationDTO;
 import com.example.campushub.enums.GroupStatus;
 import com.example.campushub.enums.MemberStatus;
+import com.example.campushub.enums.Neo4jEventType;
 import com.example.campushub.enums.UserRole;
 import com.example.campushub.enums.UserStatus;
 import com.example.campushub.exceptions.DataNotFoundException;
 import com.example.campushub.exceptions.ForbiddenAccessException;
 import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.GroupMember;
+import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.models.jpa.UserInterest;
+import com.example.campushub.models.jpa.UserInterestId;
 import com.example.campushub.repositories.jpa.GroupMemberRepository;
+import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
+import com.example.campushub.repositories.jpa.UserInterestRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.MajorNeo4jRepository;
 import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
@@ -36,6 +43,7 @@ import com.example.campushub.responses.admin.AdminUserResponse;
 
 import lombok.RequiredArgsConstructor;
 import net.datafaker.Faker;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -47,17 +55,28 @@ public class UserService {
     private final UserNeo4jRepository userNeo4jRepository;
     private final MajorNeo4jRepository majorNeo4jRepository;
     private final InterestNeo4jRepository interestNeo4jRepository;
+    private final Neo4jSyncEventRepository neo4jSyncEventRepository;
+    private final UserInterestRepository userInterestRepository;
+    private final ObjectMapper objectMapper;
     private final FileUploadService fileUploadService;
     private final Faker faker;
 
-    private UserStatus parseAndValidateUserStatus(String status){
-        if(status==null || status.isBlank())
+    private UserStatus parseAndValidateUserStatus(String status) {
+        if (status == null || status.isBlank())
             return null;
         try {
             UserStatus userStatus = UserStatus.valueOf(status);
             return userStatus;
         } catch (Exception e) {
             throw new InvalidParamException("Tham số user status không hợp lệ: " + status);
+        }
+    }
+
+    private String toJson(Object object) {
+        try {
+            return objectMapper.writeValueAsString(object);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to convert object to JSON", e);
         }
     }
 
@@ -109,11 +128,23 @@ public class UserService {
         user.setDepartment(major);
         userRepository.save(user);
 
-        try {
-            userNeo4jRepository.updateUserProfileGraph(user.getId(), major, hobbies);
-        } catch (Exception e) {
-            throw new RuntimeException("Cập nhật hồ sơ thất bại tại Neo4j", e);
-        }
+        userInterestRepository.deleteByIdUserId(user.getId());
+
+        Set<String> newHobbies = (hobbies == null || hobbies.isEmpty()) ? Set.of() : hobbies;
+        List<UserInterest> interests = newHobbies.stream()
+                .map(name -> UserInterest.builder()
+                        .id(new UserInterestId(user.getId(), name))
+                        .user(user)
+                        .build())
+                .toList();
+
+        userInterestRepository.saveAll(interests);
+
+        UserProfileUpdatedPayload payload = new UserProfileUpdatedPayload(user.getId(), major, newHobbies);
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.USER_PROFILE_UPDATED,
+                user.getId(),
+                toJson(payload)));
     }
 
     public void updateAvatarUser(User user, MultipartFile avatarFile) throws Exception {
@@ -136,16 +167,30 @@ public class UserService {
         userRepository.save(user);
     }
 
-    @Transactional("neo4jTransactionManager")
+    @Transactional("transactionManager")
     public void updateTopicUser(User user, Set<String> topic) {
         boolean isNull = topic == null || topic.isEmpty();
-        
+
         Set<String> newTopics = isNull ? Set.of() : topic;
 
-        userNeo4jRepository.removeOldTopics(user.getId(), newTopics);
-        if (!newTopics.isEmpty()) {
-            userNeo4jRepository.addNewTopics(user.getId(), newTopics);
-        }
+        userInterestRepository.deleteByIdUserId(user.getId());
+
+        List<UserInterest> interests = newTopics.stream()
+                .map(name -> UserInterest.builder()
+                        .id(new UserInterestId(user.getId(), name))
+                        .user(user)
+                        .build())
+                .toList();
+
+        userInterestRepository.saveAll(interests);
+
+        UserProfileUpdatedPayload payload = new UserProfileUpdatedPayload(user.getId(), user.getDepartment(),
+                newTopics);
+
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.USER_PROFILE_UPDATED,
+                user.getId(),
+                toJson(payload)));
     }
 
     public List<TopicResponse> getUserTopics(User user) {
@@ -173,15 +218,15 @@ public class UserService {
     }
 
     // --- ADMIN ---
-    public Page<AdminUserResponse> getUsers(String query, String status, Pageable pageable) throws Exception{
+    public Page<AdminUserResponse> getUsers(String query, String status, Pageable pageable) throws Exception {
         UserStatus userStatus = parseAndValidateUserStatus(status);
-        if(query!=null && query.trim().isEmpty() )
+        if (query != null && query.trim().isEmpty())
             query = null;
         return userRepository.findByQueryAndOptionalStatus(query, userStatus, pageable)
-            .map(AdminUserResponse::fromEntity);
+                .map(AdminUserResponse::fromEntity);
     }
 
-    public void banUser(User currentUser, String userId) throws Exception{
+    public void banUser(User currentUser, String userId) throws Exception {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
 
@@ -193,7 +238,7 @@ public class UserService {
         userRepository.save(user);
     }
 
-    public void unbanUser(User currentUser, String userId) throws Exception{
+    public void unbanUser(User currentUser, String userId) throws Exception {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
 
@@ -204,9 +249,9 @@ public class UserService {
         user.setStatus(UserStatus.ACTIVE);
         userRepository.save(user);
     }
-    
+
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
-    public int seedUser(int count){
+    public int seedUser(int count) {
         List<String> majors = majorNeo4jRepository.findAllMajorNames();
         List<String> tags = interestNeo4jRepository.findLeafTagsToList();
         List<String> mutableList = new ArrayList<>(tags);
@@ -250,6 +295,5 @@ public class UserService {
         }
         return successCount;
     }
-
 
 }

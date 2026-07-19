@@ -1,9 +1,15 @@
 package com.example.campushub.services;
 
+import com.example.campushub.dtos.record.groups.GroupCreatedPayload;
+import com.example.campushub.dtos.record.groups.GroupDeletedPayload;
+import com.example.campushub.dtos.record.groups.GroupMemberApprovedPayload;
+import com.example.campushub.dtos.record.groups.GroupMemberRemovedPayload;
+import com.example.campushub.dtos.record.groups.GroupNameUpdatedPayload;
 import com.example.campushub.dtos.users.CreateGroupDTO;
 import com.example.campushub.enums.GroupStatus;
 import com.example.campushub.enums.MemberRole;
 import com.example.campushub.enums.MemberStatus;
+import com.example.campushub.enums.Neo4jEventType;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReportStatus;
 import com.example.campushub.enums.ReportType;
@@ -17,11 +23,13 @@ import com.example.campushub.exceptions.InvalidParamException;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.GroupMemberId;
+import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.Report;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.models.neo4j.GroupNode;
 import com.example.campushub.repositories.jpa.GroupMemberRepository;
 import com.example.campushub.repositories.jpa.GroupRepository;
+import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
 import com.example.campushub.repositories.jpa.ReportRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.GroupNeo4jRepository;
@@ -32,6 +40,8 @@ import com.example.campushub.responses.ReportResponse;
 import com.example.campushub.responses.ReportTargetResponse;
 import lombok.RequiredArgsConstructor;
 import net.datafaker.Faker;
+import tools.jackson.databind.ObjectMapper;
+
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -53,9 +63,19 @@ public class GroupService {
     private final ReportRepository reportRepository;
     private final UserRepository userRepository;
     private final GroupNeo4jRepository groupNeo4jRepository;
+    private final Neo4jSyncEventRepository neo4jSyncEventRepository;
+    private final ObjectMapper objectMapper;
     private final FileUploadService fileUploadService;
     private final ApplicationEventPublisher eventPublisher;
     private final Faker faker;
+
+    private String toJson(Object object) {
+        try {
+            return objectMapper.writeValueAsString(object);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to convert object to JSON", e);
+        }
+    }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public GroupResponse createGroup(User user, CreateGroupDTO dto) {
@@ -65,7 +85,7 @@ public class GroupService {
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
-    public int seedGroups(User user, int count){
+    public int seedGroups(User user, int count) {
         List<String> groupTypes = List.of(
                 "CLB",
                 "Cộng đồng",
@@ -200,26 +220,13 @@ public class GroupService {
 
         groupMemberRepository.saveAndFlush(leaderMember);
 
-        boolean graphCreationAttempted = false;
-        try {
-            graphCreationAttempted = true;
-            GroupNode groupNode = GroupNode.builder()
-                    .id(group.getId())
-                    .name(group.getName())
-                    .build();
-            groupNeo4jRepository.save(groupNode);
-            groupNeo4jRepository.addUserToGroup(user.getId(), group.getId());
-        } catch (Exception e) {
-            if (graphCreationAttempted) {
-                try {
-                    groupNeo4jRepository.deleteGroupById(group.getId());
-                } catch (Exception compensationError) {
-                    e.addSuppressed(compensationError);
-                }
-            }
-            throw new RuntimeException("Tạo nhóm thất bại tại Neo4j", e);
-        }
+        GroupCreatedPayload payload = new GroupCreatedPayload(
+                group.getId(),
+                user.getId(),
+                group.getName());
 
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.GROUP_CREATED, group.getId(), toJson(payload)));
         return leaderMember;
     }
 
@@ -227,22 +234,22 @@ public class GroupService {
         Map<String, GroupMember> currentUserMembers = currentUser == null
                 ? Map.of()
                 : groupMemberRepository.findByUser(currentUser).stream()
-                .collect(Collectors.toMap(
-                        member -> member.getId().getGroupId(),
-                        member -> member,
-                        (existing, replacement) -> existing
-                ));
+                        .collect(Collectors.toMap(
+                                member -> member.getId().getGroupId(),
+                                member -> member,
+                                (existing, replacement) -> existing));
 
         List<Group> visibleGroups = groupRepository.findAll().stream()
                 .filter(group -> group.getStatus() != GroupStatus.DELETED)
-                .filter(group -> group.getStatus() == GroupStatus.ACTIVE || currentUserMembers.containsKey(group.getId()))
+                .filter(group -> group.getStatus() == GroupStatus.ACTIVE
+                        || currentUserMembers.containsKey(group.getId()))
                 .collect(Collectors.toList());
         Map<String, GroupMember> leaderMembers = findLeaderMembersByGroupIds(
-                visibleGroups.stream().map(Group::getId).collect(Collectors.toList())
-        );
+                visibleGroups.stream().map(Group::getId).collect(Collectors.toList()));
 
         return visibleGroups.stream()
-                .map(group -> GroupResponse.fromGroup(group, currentUserMembers.get(group.getId()), leaderMembers.get(group.getId())))
+                .map(group -> GroupResponse.fromGroup(group, currentUserMembers.get(group.getId()),
+                        leaderMembers.get(group.getId())))
                 .collect(Collectors.toList());
     }
 
@@ -265,7 +272,8 @@ public class GroupService {
         if (group.getStatus() == GroupStatus.DELETED) {
             throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
         }
-        List<Report> groupReports = reportRepository.findAllByTargetIdAndTargetTypeOrderByCreatedAtDesc(groupId, ReportType.GROUP);
+        List<Report> groupReports = reportRepository.findAllByTargetIdAndTargetTypeOrderByCreatedAtDesc(groupId,
+                ReportType.GROUP);
         List<ReportResponse> reports = groupReports.stream()
                 .filter(report -> report.getReporter().getRole() == UserRole.ADMIN)
                 .filter(report -> report.getStatus() == ReportStatus.RESOLVED)
@@ -306,8 +314,7 @@ public class GroupService {
 
         Page<Group> groups = groupRepository.searchAdminGroups(normalizedQuery, groupStatus, pageable);
         Map<String, GroupMember> leaderMembers = findLeaderMembersByGroupIds(
-                groups.getContent().stream().map(Group::getId).collect(Collectors.toList())
-        );
+                groups.getContent().stream().map(Group::getId).collect(Collectors.toList()));
 
         return groups.map(group -> GroupResponse.fromGroup(group, null, leaderMembers.get(group.getId())));
     }
@@ -324,8 +331,9 @@ public class GroupService {
         }
     }
 
-    @Transactional(value= "transactionManager", readOnly = true)
-    public Page<GroupMemberResponse> getPendingGroupMembers(User currentUser, String groupId, Pageable pageable) throws Exception {
+    @Transactional(value = "transactionManager", readOnly = true)
+    public Page<GroupMemberResponse> getPendingGroupMembers(User currentUser, String groupId, Pageable pageable)
+            throws Exception {
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
                 .orElseThrow(() -> new ForbiddenAccessException("Bạn không phải là thành viên của nhóm này"));
@@ -462,7 +470,13 @@ public class GroupService {
         group.setMemberCount(group.getMemberCount() + 1);
         groupRepository.save(group);
 
-        groupNeo4jRepository.addUserToGroup(targetUserId, groupId);
+        GroupMemberApprovedPayload payload = new GroupMemberApprovedPayload(
+                group.getId(),
+                targetUserId);
+        
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.GROUP_MEMBER_APPROVED, group.getId(), toJson(payload)));
+
         publishGroupNotification(
                 currentUser,
                 targetMember.getUser(),
@@ -534,7 +548,13 @@ public class GroupService {
         group.setMemberCount(group.getMemberCount() - 1);
         groupRepository.save(group);
 
-        groupNeo4jRepository.removeUserFromGroup(targetUserId, groupId);
+        GroupMemberRemovedPayload payload = new GroupMemberRemovedPayload(
+                group.getId(),
+                targetUserId);
+        
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.GROUP_MEMBER_REMOVED, groupId, toJson(payload)));
+    
         publishGroupNotification(
                 currentUser,
                 targetMember.getUser(),
@@ -553,7 +573,8 @@ public class GroupService {
                 .orElseThrow(() -> new RuntimeException("Bạn chưa tham gia nhóm này"));
 
         if (currentUserMember.getRole() == MemberRole.LEADER) {
-            throw new ForbiddenAccessException("Trưởng nhóm không thể tự rời nhóm. Hãy nhường quyền cho người khác trước.");
+            throw new ForbiddenAccessException(
+                    "Trưởng nhóm không thể tự rời nhóm. Hãy nhường quyền cho người khác trước.");
         }
 
         boolean wasApprovedMember = currentUserMember.getStatus() == MemberStatus.APPROVED;
@@ -562,7 +583,13 @@ public class GroupService {
         if (wasApprovedMember) {
             group.setMemberCount(group.getMemberCount() - 1);
             groupRepository.save(group);
-            groupNeo4jRepository.removeUserFromGroup(currentUser.getId(), groupId);
+            
+            GroupMemberRemovedPayload payload = new GroupMemberRemovedPayload(
+                    group.getId(),
+                    currentUser.getId());
+            
+            neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                    Neo4jEventType.GROUP_MEMBER_REMOVED, groupId, toJson(payload)));
         }
     }
 
@@ -583,11 +610,11 @@ public class GroupService {
         assertGroupActive(group);
         group.setStatus(GroupStatus.DELETED);
         groupRepository.saveAndFlush(group);
-        try {
-            groupNeo4jRepository.deleteGroupById(groupId);
-        } catch (Exception e) {
-            throw new Exception("Xóa nhóm thành công trong MySQL nhưng lỗi khi xóa nhóm trên Neo4j: " + e.getMessage());
-        }
+
+        GroupDeletedPayload payload = new GroupDeletedPayload(group.getId());
+
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.GROUP_DELETED, groupId, toJson(payload)));
     }
 
     private GroupMember findCurrentUserMember(User currentUser, String groupId) {
@@ -609,13 +636,13 @@ public class GroupService {
             return Map.of();
         }
 
-        return groupMemberRepository.findByGroup_IdInAndRoleAndStatus(groupIds, MemberRole.LEADER, MemberStatus.APPROVED)
+        return groupMemberRepository
+                .findByGroup_IdInAndRoleAndStatus(groupIds, MemberRole.LEADER, MemberStatus.APPROVED)
                 .stream()
                 .collect(Collectors.toMap(
                         member -> member.getId().getGroupId(),
                         member -> member,
-                        (existing, replacement) -> existing
-                ));
+                        (existing, replacement) -> existing));
     }
 
     private void assertGroupActive(Group group) {
@@ -673,12 +700,11 @@ public class GroupService {
         assertGroupActive(group);
         group.setName(name);
         groupRepository.saveAndFlush(group);
-        
-        try {
-            groupNeo4jRepository.updateGroupName(groupId, name);
-        } catch (Exception e) {
-            throw new Exception("Lỗi khi cập nhật tên nhóm trên Neo4j: " + e.getMessage());
-        }
+
+        GroupNameUpdatedPayload payload = new GroupNameUpdatedPayload(group.getId(), name);
+
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+            Neo4jEventType.GROUP_NAME_UPDATED, groupId, toJson(payload)));
 
         notifyApprovedMembers(
                 currentUser,
@@ -708,7 +734,8 @@ public class GroupService {
         return GroupResponse.fromGroup(group, currentUserMember);
     }
 
-    private void notifyLeader(User actor, GroupMember leaderMember, NotificationType type, Group group, String message) {
+    private void notifyLeader(User actor, GroupMember leaderMember, NotificationType type, Group group,
+            String message) {
         if (leaderMember == null) {
             return;
         }
@@ -722,7 +749,8 @@ public class GroupService {
                 .forEach(member -> publishGroupNotification(actor, member, type, group, message));
     }
 
-    private void publishGroupNotification(User actor, User recipient, NotificationType type, Group group, String message) {
+    private void publishGroupNotification(User actor, User recipient, NotificationType type, Group group,
+            String message) {
         if (actor == null || recipient == null || actor.getId().equals(recipient.getId())) {
             return;
         }

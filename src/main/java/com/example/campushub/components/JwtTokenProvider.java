@@ -124,9 +124,9 @@ public class JwtTokenProvider {
 
             String subject = claims.getSubject();
             if(user.getStatus().equals(UserStatus.INACTIVE)){
-                throw new UnauthorizedException("This account has been disabled");
+                throw new UnauthorizedException("This account is disabled");
             } else if(user.getStatus().equals(UserStatus.BANNED)){
-                throw new UnauthorizedException("This account has been banned");
+                throw new UnauthorizedException("This account is banned");
             }
 
             Date expiration = claims.getExpiration();

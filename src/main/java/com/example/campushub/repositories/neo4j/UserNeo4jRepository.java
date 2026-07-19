@@ -32,7 +32,6 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
                      "RETURN u")
        List<UserNode> updateUserTags(@Param("userId") String userId, @Param("tags") Set<String> tags);
 
-
        @Query("MERGE (u:User {id: $userId}) " +
                      "WITH u, $majorName AS majorName, " +
                      "CASE WHEN $hobbies IS NULL THEN [] ELSE $hobbies END AS hobbies " +
@@ -51,7 +50,31 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
                      @Param("majorName") String majorName,
                      @Param("hobbies") Set<String> hobbies);
 
-       @Query("MATCH (:User {id: $userId})-[:INTERESTED_IN]->(t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) " +
+       @Query("""
+                     MERGE (u:User {id: $userId})
+                     OPTIONAL MATCH (u)-[oldInterest:INTERESTED_IN]->(:Interest)
+                     DELETE oldInterest
+                     WITH u, CASE WHEN $hobbies IS NULL THEN [] ELSE $hobbies END AS hobbies, $majorName AS majorName
+                     OPTIONAL MATCH (u)-[oldMajor:MAJORS_IN]->(:Major)
+                     DELETE oldMajor
+                     WITH u, hobbies, majorName
+                     FOREACH (_ IN CASE WHEN majorName IS NOT NULL AND trim(majorName) <> '' THEN [1] ELSE [] END |
+                         MERGE (m:Major {name: majorName})
+                         MERGE (u)-[:MAJORS_IN]->(m)
+                     )
+                     WITH u, hobbies
+                     UNWIND hobbies AS hobby
+                     MATCH (t:Interest {name: hobby})-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'})
+                     MERGE (u)-[:INTERESTED_IN]->(t)
+                     RETURN count(t)
+                                      """)
+       long replaceUserProfileGraph(
+                     @Param("userId") String userId,
+                     @Param("majorName") String majorName,
+                     @Param("hobbies") Set<String> hobbies);
+
+       @Query("MATCH (:User {id: $userId})-[:INTERESTED_IN]->(t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) "
+                     +
                      "RETURN t.name")
        Set<String> findUserInterestNames(@Param("userId") String userId);
 
@@ -102,12 +125,13 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
        FollowStats getFollowStats(@Param("userId") String userId);
 
        // 9. Lấy 5 gợi ý kết bạn dựa trên số lượng kỹ năng/ sở thích chung
-       @Query("MATCH (me:User {id: $currentUserId})-[:INTERESTED_IN]->(t:Interest)<-[:INTERESTED_IN]-(suggested:User) " +
+       @Query("MATCH (me:User {id: $currentUserId})-[:INTERESTED_IN]->(t:Interest)<-[:INTERESTED_IN]-(suggested:User) "
+                     +
                      "WHERE me <> suggested AND NOT (me)-[:FOLLOWS]->(suggested) " +
                      "WITH suggested, count(t) AS sharedInterests " +
                      "ORDER BY sharedInterests DESC " +
-                      "LIMIT $limit " +
-                      "RETURN suggested.id")
+                     "LIMIT $limit " +
+                     "RETURN suggested.id")
        List<String> getSuggestedUserByHooby(@Param("currentUserId") String currentUserId, @Param("limit") int limit);
 
        // 10. Thuật toán quét "Phòng hở" (Fallback): Chỉ lấy 5 người ngẫu nhiên chưa
@@ -117,7 +141,7 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
        @Query("MATCH (me:User {id: $currentUserId}), (suggested:User) " +
                      "WHERE me <> suggested AND NOT (me)-[:FOLLOWS]->(suggested) " +
                      "RETURN suggested.id " +
-                      "LIMIT $limit")
+                     "LIMIT $limit")
        List<String> getRandomSuggestedUser(@Param("currentUserId") String currentUserId, @Param("limit") int limit);
 
        // 11. Lấy danh sách ID những người mà User đang theo dõi (Following)

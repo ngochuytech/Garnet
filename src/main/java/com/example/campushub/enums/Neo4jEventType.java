@@ -1,0 +1,15 @@
+package com.example.campushub.enums;
+
+public enum Neo4jEventType {
+    USER_PROFILE_UPDATED,
+    USER_FOLLOWED,
+    USER_UNFOLLOWED,
+    POST_CREATED,
+    POST_SHARED,
+    POST_STATUS_CHANGED,
+    GROUP_CREATED,
+    GROUP_MEMBER_APPROVED,
+    GROUP_MEMBER_REMOVED,
+    GROUP_DELETED,
+    GROUP_NAME_UPDATED
+}

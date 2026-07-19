@@ -1,6 +1,6 @@
 package com.example.campushub.services;
 
-import java.security.InvalidParameterException;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -22,9 +22,9 @@ import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.enums.Neo4jEventType;
 import com.example.campushub.enums.UserRole;
 import com.example.campushub.enums.UserStatus;
-import com.example.campushub.exceptions.DataNotFoundException;
-import com.example.campushub.exceptions.ForbiddenAccessException;
-import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
+import com.example.campushub.exceptions.ForbiddenException;
+import com.example.campushub.exceptions.BadRequestException;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.User;
@@ -68,7 +68,7 @@ public class UserService {
             UserStatus userStatus = UserStatus.valueOf(status);
             return userStatus;
         } catch (Exception e) {
-            throw new InvalidParamException("Tham số user status không hợp lệ: " + status);
+            throw new BadRequestException("Tham số user status không hợp lệ: " + status);
         }
     }
 
@@ -80,19 +80,19 @@ public class UserService {
         }
     }
 
-    public User getUserFromEmail(String email) throws Exception {
+    public User getUserFromEmail(String email) throws ResourceNotFoundException{
         return userRepository.findByEmail(email)
-                .orElseThrow(() -> new Exception("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
     }
 
-    public User getUserById(String id) throws Exception {
+    public User getUserById(String id) throws ResourceNotFoundException {
         return userRepository.findById(id)
-                .orElseThrow(() -> new Exception("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
     }
 
     public void updateInformationUser(User user, UpdateInformationDTO dto) throws Exception {
         if (dto.getFullname() == null || dto.getFullname().isEmpty()) {
-            throw new InvalidParameterException("Full name is required");
+            throw new BadRequestException("Full name is required");
         }
         user.setFullName(dto.getFullname());
         user.setDateOfBirth(dto.getDateOfBirth());
@@ -107,7 +107,7 @@ public class UserService {
 
     public void updatePasswordUser(User user, String currentPassword, String newPassword) throws Exception {
         if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
-            throw new InvalidParameterException("Current password is incorrect");
+            throw new BadRequestException("Current password is incorrect");
         }
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
@@ -116,7 +116,7 @@ public class UserService {
     public void updateBioUser(User user, String bio) {
         int wordCount = bio.trim().split("\\s+").length;
         if (wordCount > 1000) {
-            throw new InvalidParamException("Bio cannot exceed 1000 words. Current: " + wordCount + " words");
+            throw new BadRequestException("Bio cannot exceed 1000 words. Current: " + wordCount + " words");
         }
 
         user.setBio(bio);
@@ -154,10 +154,10 @@ public class UserService {
         // Validate file type and size
         String contentType = avatarFile.getContentType();
         if (contentType == null || !contentType.startsWith("image/")) {
-            throw new InvalidParameterException("File phải là định dạng hình ảnh");
+            throw new BadRequestException("File phải là định dạng hình ảnh");
         }
         if (avatarFile.getSize() > 5 * 1024 * 1024) { // 5MB limit
-            throw new InvalidParameterException("Kích thước ảnh tối đa 5MB.");
+            throw new BadRequestException("Kích thước ảnh tối đa 5MB.");
         }
 
         // Upload to Cloudinary and get the URL
@@ -228,10 +228,10 @@ public class UserService {
 
     public void banUser(User currentUser, String userId) throws Exception {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+                .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
 
         if (user.getRole() == null || user.getRole().equals(UserRole.ADMIN)) {
-            throw new ForbiddenAccessException("Không thể ban tài khoản admin");
+            throw new ForbiddenException("Không thể ban tài khoản admin");
         }
 
         user.setStatus(UserStatus.BANNED);
@@ -240,10 +240,10 @@ public class UserService {
 
     public void unbanUser(User currentUser, String userId) throws Exception {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+                .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
 
         if (user.getRole() == null || user.getRole().equals(UserRole.ADMIN)) {
-            throw new ForbiddenAccessException("Không thể thay đổi trạng thái tài khoản admin");
+            throw new ForbiddenException("Không thể thay đổi trạng thái tài khoản admin");
         }
 
         user.setStatus(UserStatus.ACTIVE);

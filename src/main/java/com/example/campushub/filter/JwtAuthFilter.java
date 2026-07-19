@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import com.example.campushub.components.JwtTokenProvider;
-import com.example.campushub.exceptions.auth.ExpiredTokenException;
+import com.example.campushub.exceptions.UnauthorizedException;
 import com.example.campushub.models.jpa.User;
 
 import jakarta.servlet.FilterChain;
@@ -63,7 +63,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authToken);
                 }
             }
-        } catch (ExpiredTokenException e) {
+        } catch (UnauthorizedException e) {
             // Xử lý token hết hạn
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");

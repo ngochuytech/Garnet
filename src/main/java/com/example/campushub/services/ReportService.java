@@ -25,8 +25,8 @@ import com.example.campushub.enums.ReportStatus;
 import com.example.campushub.enums.ReportType;
 import com.example.campushub.enums.UserRole;
 import com.example.campushub.events.NotificationEvent;
-import com.example.campushub.exceptions.DataNotFoundException;
-import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
+import com.example.campushub.exceptions.BadRequestException;
 import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
@@ -72,16 +72,16 @@ public class ReportService {
     private ReportType parseAndValidateTargetType(String targetType) {
         try {
             return ReportType.valueOf(targetType.toUpperCase());
-        } catch (InvalidParamException e) {
-            throw new InvalidParamException("Tham số target type không hợp lệ" + targetType);
+        } catch (BadRequestException e) {
+            throw new BadRequestException("Tham số target type không hợp lệ" + targetType);
         }
     }
 
     private ReportStatus parseAndValidateReportStatus(String status) {
         try {
             return ReportStatus.valueOf(status.toUpperCase());
-        } catch (InvalidParamException e) {
-            throw new InvalidParamException("Tham số report status không hợp lệ" + status);
+        } catch (BadRequestException e) {
+            throw new BadRequestException("Tham số report status không hợp lệ" + status);
         }
     }
 
@@ -91,21 +91,21 @@ public class ReportService {
         }
         try {
             return ReportType.valueOf(type.toUpperCase());
-        } catch (InvalidParamException e) {
-            throw new InvalidParamException("Tham số report type không hợp lệ" + type);
+        } catch (BadRequestException e) {
+            throw new BadRequestException("Tham số report type không hợp lệ" + type);
         }
     }
 
     public void createReportPost(User reporter, CreateReportPostDTO dto) throws Exception {
         ReportType type = parseAndValidateTargetType(dto.getTargetType());
         if (type != ReportType.POST)
-            throw new InvalidParamException("Báo cáo không hợp lệ!");
+            throw new BadRequestException("Báo cáo không hợp lệ!");
         Post post = postRepository.findById(dto.getTargetId())
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết cần báo cáo!"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bài viết cần báo cáo!"));
 
         if (reportRepository.existsByReporterAndTargetTypeAndTargetIdAndStatus(reporter, type, post.getId(),
                 ReportStatus.OPEN)) {
-            throw new InvalidParamException("Bạn đã báo cáo bài viết này rồi!");
+            throw new BadRequestException("Bạn đã báo cáo bài viết này rồi!");
         }
 
         Report report = Report.builder()
@@ -123,16 +123,16 @@ public class ReportService {
 
     public void createReportGroup(User reporter, String groupId, CreateReportGroupDTO dto) throws Exception {
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm cần báo cáo!"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm cần báo cáo!"));
 
         if (reportRepository.existsByReporterAndTargetTypeAndTargetIdAndStatus(reporter, ReportType.GROUP,
                 group.getId(), ReportStatus.OPEN)) {
-            throw new InvalidParamException("Bạn đã báo cáo nhóm này và báo cáo đang chờ xử lý!");
+            throw new BadRequestException("Bạn đã báo cáo nhóm này và báo cáo đang chờ xử lý!");
         }
 
         GroupMember leader = groupMemberRepository
                 .findFirstByGroup_IdAndRoleAndStatus(groupId, MemberRole.LEADER, MemberStatus.APPROVED)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy trưởng nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy trưởng nhóm"));
 
         Report report = Report.builder()
                 .reporter(reporter)
@@ -149,15 +149,15 @@ public class ReportService {
 
     public void reportComment(User reporter, String commentId, CreateReportCommentDTO dto) throws Exception {
         Comment comment = commentRepository.findById(commentId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận cần báo cáo!"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bình luận cần báo cáo!"));
 
         if (comment.getStatus() != ContentStatus.ACTIVE) {
-            throw new DataNotFoundException("Bình luận này không tồn tại hoặc đã bị xóa!");
+            throw new ResourceNotFoundException("Bình luận này không tồn tại hoặc đã bị xóa!");
         }
 
         if (reportRepository.existsByReporterAndTargetTypeAndTargetIdAndStatus(
                 reporter, ReportType.COMMENT, comment.getId(), ReportStatus.OPEN)) {
-            throw new InvalidParamException("Bạn đã báo cáo bình luận này và báo cáo đang chờ xử lý!");
+            throw new BadRequestException("Bạn đã báo cáo bình luận này và báo cáo đang chờ xử lý!");
         }
 
         Report report = Report.builder()
@@ -176,14 +176,14 @@ public class ReportService {
     @Transactional(value = "transactionManager", readOnly = true)
     public Report getReportDetail(String reportId) throws Exception {
         Report report = reportRepository.findById(reportId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy báo cáo!"));
         return report;
     }
 
     @Transactional(value = "transactionManager", readOnly = true)
     public ReportResponse getReportDetailResponse(String reportId) throws Exception {
         Report report = reportRepository.findById(reportId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy báo cáo!"));
         return toReportResponse(report);
     }
 
@@ -205,7 +205,7 @@ public class ReportService {
     @Transactional(value = "transactionManager")
     public void closeReport(User currentUser, String reportId) throws Exception {
         Report report = reportRepository.findById(reportId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy báo cáo!"));
         report.setStatus(ReportStatus.CLOSED);
         report.setResolvedBy(currentUser);
     }
@@ -213,14 +213,14 @@ public class ReportService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void handleReportResolution(User currentUser, String reportId, AdminReportDTO dto) throws Exception {
         Report report = reportRepository.findById(reportId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy báo cáo!"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy báo cáo!"));
 
         String adminNote = dto.getAdminNotes();
         boolean isReporterAdmin = report.getReporter() != null && report.getReporter().getRole() == UserRole.ADMIN;
 
         if (report.getTargetType() == ReportType.GROUP) {
             Group group = groupRepository.findById(report.getTargetId())
-                    .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm liên quan!"));
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm liên quan!"));
             group.setStatus(GroupStatus.ARCHIVED);
             reportRepository.updateExistingReportsStatus(report.getTargetId(), ReportType.GROUP, ReportStatus.RESOLVED,
                     currentUser, adminNote);
@@ -256,7 +256,7 @@ public class ReportService {
                     currentUser, adminNote);
 
             Comment comment = commentRepository.findById(targetCommentId)
-                    .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận liên quan!"));
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bình luận liên quan!"));
             if (comment.getStatus() == ContentStatus.ACTIVE) {
                 hideActiveCommentTree(comment);
             }
@@ -279,7 +279,7 @@ public class ReportService {
         }
 
         if (report.getTargetType() != ReportType.POST) {
-            throw new InvalidParamException("Loại báo cáo này chưa được hỗ trợ xử lý tự động");
+            throw new BadRequestException("Loại báo cáo này chưa được hỗ trợ xử lý tự động");
         }
 
         String targetPostId = report.getTargetId();
@@ -287,7 +287,7 @@ public class ReportService {
                 adminNote);
 
         Post post = postRepository.findById(report.getTargetId())
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết liên quan!"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bài viết liên quan!"));
         if (!isReporterAdmin) {
             Report adminReport = Report.builder()
                     .targetId(post.getId())
@@ -314,7 +314,7 @@ public class ReportService {
     @Transactional(value = "transactionManager", readOnly = true)
     public Page<AdminReportResponse> getReportsByUserId(String userId, Pageable pageable) throws Exception {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+                .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
 
         return reportRepository.findByReportedUser(user, pageable)
                 .map(this::toAdminReportResponse);
@@ -323,7 +323,7 @@ public class ReportService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void reportPostByAdmin(User admin, String postId, AdminReportDTO dto) throws Exception {
         Post post = postRepository.findById(postId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bài viết"));
 
         reportRepository.updateExistingReportsStatus(postId, ReportType.POST, ReportStatus.RESOLVED, admin, postId);
 
@@ -345,11 +345,11 @@ public class ReportService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void reportGroupByAdmin(User admin, String groupId, AdminGroupReportDTO dto) throws Exception {
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
 
         GroupMember leader = groupMemberRepository
                 .findFirstByGroup_IdAndRoleAndStatus(groupId, MemberRole.LEADER, MemberStatus.APPROVED)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy trưởng nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy trưởng nhóm"));
 
         GroupModerationAction action = dto.getAction() != null ? dto.getAction() : GroupModerationAction.ARCHIVE;
 

@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.enums.NotificationType;
-import com.example.campushub.exceptions.DataNotFoundException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
 import com.example.campushub.models.jpa.Notification;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.NotificationRepository;
@@ -32,7 +32,7 @@ public class NotificationService {
         try {
             type = NotificationType.valueOf(typeStr.toUpperCase());
         } catch (IllegalArgumentException e) {
-            throw new DataNotFoundException("Loại thông báo không hợp lệ: " + typeStr);
+            throw new ResourceNotFoundException("Loại thông báo không hợp lệ: " + typeStr);
         }
         return notificationRepository.findByRecipientIdAndType(currentUser.getId(), type, pageable)
                 .map(NotificationResponse::fromEntity);
@@ -46,7 +46,7 @@ public class NotificationService {
     @Transactional("transactionManager")
     public void markAsRead(User currentUser, String notificationId) throws Exception {
         Notification notification = notificationRepository.findByIdAndRecipientId(notificationId, currentUser.getId())
-                .orElseThrow(() -> new DataNotFoundException("Thông báo không tồn tại hoặc không thuộc về bạn"));
+                .orElseThrow(() -> new ResourceNotFoundException("Thông báo không tồn tại hoặc không thuộc về bạn"));
         if(notification.isRead()) {
             return;
         }

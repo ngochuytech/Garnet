@@ -14,11 +14,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import com.example.campushub.enums.UserStatus;
-import com.example.campushub.exceptions.auth.ExpiredTokenException;
-import com.example.campushub.exceptions.auth.InvalidTokenException;
-import com.example.campushub.exceptions.auth.JwtAuthenticationException;
-import com.example.campushub.exceptions.auth.RevokedTokenException;
-import com.example.campushub.exceptions.auth.UnauthorizedException;
+import com.example.campushub.exceptions.UnauthorizedException;
 import com.example.campushub.models.jpa.Token;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.TokenRepository;
@@ -115,11 +111,11 @@ public class JwtTokenProvider {
             String type = claims.get("type", String.class);
 
             if ("refresh".equals(type)) {
-                throw new InvalidTokenException("Refresh token cannot be used as access token");
+                throw new UnauthorizedException("Refresh token cannot be used as access token");
             }
 
             if (type != null && !"access".equals(type)){
-                throw new InvalidTokenException("Invalid token type");
+                throw new UnauthorizedException("Invalid token type");
             }
 
             String subject = claims.getSubject();
@@ -131,14 +127,14 @@ public class JwtTokenProvider {
 
             Date expiration = claims.getExpiration();
             if (expiration == null || expiration.before(new Date())) {
-                throw new ExpiredTokenException("Token is expired! Try login again!");
+                throw new UnauthorizedException("Token is expired! Try login again!");
             }
 
             return subject.equals(user.getUsername());
         } catch (ExpiredJwtException e) {
-            throw new ExpiredTokenException("Token is expired! Try login again");
+            throw new UnauthorizedException("Token is expired! Try login again");
         } catch (JwtException e){
-            throw new InvalidTokenException("Invalid Token");
+            throw new UnauthorizedException("Invalid Token");
         }
 
     }
@@ -149,7 +145,7 @@ public class JwtTokenProvider {
         String jti = claims.getId();
         Date exp = claims.getExpiration();
         if (jti == null) {
-            throw new InvalidTokenException("Refresh token missing jti");
+            throw new UnauthorizedException("Refresh token missing jti");
         }
         Token tokenEntity = Token.builder()
                 .token(refreshToken)
@@ -166,27 +162,27 @@ public class JwtTokenProvider {
             Claims claims = extractAllClaims(refreshToken);
             String jti = claims.getId();
             if (jti == null) {
-                throw new InvalidTokenException("Refresh token thiếu jti");
+                throw new UnauthorizedException("Refresh token thiếu jti");
             }
 
             Token existingToken = tokenRepository.findByJti(jti);
             if (existingToken == null) {
-                throw new InvalidTokenException("Refresh token không tồn tại trong hệ thống");
+                throw new UnauthorizedException("Refresh token không tồn tại trong hệ thống");
             }
             if (existingToken.isRevoked()) {
-                throw new RevokedTokenException("Refresh token đã bị thu hồi. Vui lòng đăng nhập lại");
+                throw new UnauthorizedException("Refresh token đã bị thu hồi. Vui lòng đăng nhập lại");
             }
             if (!existingToken.getUser().getId().equals(user.getId())) {
                 throw new UnauthorizedException("Refresh token không thuộc về user này");
             }
             if (existingToken.getExpiresAt().isBefore(LocalDateTime.now())) {
-                throw new ExpiredTokenException("Refresh token đã hết hạn. Vui lòng đăng nhập lại");
+                throw new UnauthorizedException("Refresh token đã hết hạn. Vui lòng đăng nhập lại");
             }
             return true;
         } catch (ExpiredJwtException e) {
-            throw new ExpiredTokenException("Refresh token đã hết hạn. Vui lòng đăng nhập lại");
+            throw new UnauthorizedException("Refresh token đã hết hạn. Vui lòng đăng nhập lại");
         } catch (JwtException e) {
-            throw new InvalidTokenException("Refresh token không hợp lệ");
+            throw new UnauthorizedException("Refresh token không hợp lệ");
         }
     }
 
@@ -208,7 +204,7 @@ public class JwtTokenProvider {
         try {
             return extractClaim(token, Claims::getId);
         } catch (JwtException e) {
-            throw new InvalidTokenException("Không thể lấy jti từ token");
+            throw new UnauthorizedException("Không thể lấy jti từ token");
         }
     }
 
@@ -264,7 +260,7 @@ public class JwtTokenProvider {
         if (principal instanceof User) {
             return (User) principal;
         } else {
-            throw new JwtAuthenticationException("Principal không phải là User object. Principal type: " +
+            throw new UnauthorizedException("Principal không phải là User object. Principal type: " +
                     principal.getClass().getName() + ", value: " + principal);
         }
     }

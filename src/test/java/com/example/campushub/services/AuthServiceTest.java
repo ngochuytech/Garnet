@@ -26,7 +26,7 @@ import com.example.campushub.dtos.auth.LoginDTO;
 import com.example.campushub.dtos.auth.RegisterDTO;
 import com.example.campushub.dtos.auth.ResetPasswordDTO;
 import com.example.campushub.enums.UserActionTokenPurpose;
-import com.example.campushub.exceptions.DataNotFoundException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.models.jpa.UserActionToken;
 import com.example.campushub.repositories.jpa.UserActionTokenRepository;
@@ -82,7 +82,7 @@ class AuthServiceTest {
         when(userRepository.findByEmail(dto.getEmail())).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(dto.getPassword(), user.getPassword())).thenReturn(false);
 
-        assertThrows(DataNotFoundException.class, () -> authService.login(dto));
+        assertThrows(ResourceNotFoundException.class, () -> authService.login(dto));
 
         verify(jwtTokenProvider, never()).generateToken(any(User.class));
     }

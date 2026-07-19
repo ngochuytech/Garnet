@@ -1,7 +1,6 @@
 package com.example.campushub.services;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -28,8 +27,8 @@ import org.springframework.web.client.RestTemplate;
 import com.example.campushub.dtos.AiRecommendationResponse;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.events.NotificationEvent;
-import com.example.campushub.exceptions.DataNotFoundException;
-import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.exceptions.BadRequestException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
 import com.example.campushub.models.jpa.Notification;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.NotificationRepository;
@@ -76,7 +75,7 @@ class FollowServiceTest {
 
     @Test
     void followUserRejectsSelfFollow() {
-        assertThrows(InvalidParamException.class,
+        assertThrows(BadRequestException.class,
                 () -> followService.followUser("current-user", "current-user"));
     }
 
@@ -84,7 +83,7 @@ class FollowServiceTest {
     void followUserRejectsMissingTarget() {
         when(userRepository.findById("missing-user")).thenReturn(Optional.empty());
 
-        assertThrows(DataNotFoundException.class,
+        assertThrows(ResourceNotFoundException.class,
                 () -> followService.followUser("current-user", "missing-user"));
     }
 
@@ -94,7 +93,7 @@ class FollowServiceTest {
         bannedUser.setStatus(com.example.campushub.enums.UserStatus.BANNED);
         when(userRepository.findById("banned-user")).thenReturn(Optional.of(bannedUser));
 
-        assertThrows(InvalidParamException.class,
+        assertThrows(BadRequestException.class,
                 () -> followService.followUser("current-user", "banned-user"));
 
         verify(userNeo4jRepository, never()).followUser("current-user", "banned-user");
@@ -106,7 +105,7 @@ class FollowServiceTest {
         inactiveUser.setStatus(com.example.campushub.enums.UserStatus.INACTIVE);
         when(userRepository.findById("inactive-user")).thenReturn(Optional.of(inactiveUser));
 
-        assertThrows(InvalidParamException.class,
+        assertThrows(BadRequestException.class,
                 () -> followService.followUser("current-user", "inactive-user"));
 
         verify(userNeo4jRepository, never()).followUser("current-user", "inactive-user");

@@ -39,10 +39,9 @@ import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReactionType;
 import com.example.campushub.enums.UserStatus;
 import com.example.campushub.events.NotificationEvent;
-import com.example.campushub.exceptions.DataNotFoundException;
-import com.example.campushub.exceptions.ForbiddenAccessException;
-import com.example.campushub.exceptions.InvalidContentStateException;
-import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
+import com.example.campushub.exceptions.ForbiddenException;
+import com.example.campushub.exceptions.BadRequestException;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.GroupMemberId;
@@ -104,7 +103,7 @@ public class PostService {
         try {
             return ContentStatus.valueOf(status.toUpperCase());
         } catch (IllegalArgumentException e) {
-            throw new InvalidContentStateException("Tham số trạng thái bài viết không hợp lệ: " + status);
+            throw new BadRequestException("Tham số trạng thái bài viết không hợp lệ: " + status);
         }
     }
 
@@ -120,21 +119,21 @@ public class PostService {
     public void createPost(User user, CreatePostDTO dto, List<MultipartFile> images) throws Exception {
         long existingTagsCount = tagNeo4jRepository.countByNameIn(dto.getTags());
         if (existingTagsCount != dto.getTags().size()) {
-            throw new DataNotFoundException("Một hoặc nhiều chủ đề không tồn tại");
+            throw new ResourceNotFoundException("Một hoặc nhiều chủ đề không tồn tại");
         }
 
         Group groupNode = null;
         if (dto.getGroupId() != null) {
             GroupMemberId memberId = new GroupMemberId(dto.getGroupId(), user.getId());
             GroupMember member = groupMemberRepository.findById(memberId)
-                    .orElseThrow(() -> new ForbiddenAccessException("Bạn không phải là thành viên của nhóm này"));
+                    .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
             if (member.getStatus() != MemberStatus.APPROVED) {
-                throw new ForbiddenAccessException("Bạn chưa phải là thành viên thức của nhóm này");
+                throw new ForbiddenException("Bạn chưa phải là thành viên thức của nhóm này");
             }
             groupNode = groupRepository.findById(dto.getGroupId())
-                    .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
             if (groupNode.getStatus() != GroupStatus.ACTIVE) {
-                throw new ForbiddenAccessException("Nhóm này đã bị lưu trữ và không còn cho phép đăng bài mới");
+                throw new ForbiddenException("Nhóm này đã bị lưu trữ và không còn cho phép đăng bài mới");
             }
         }
 
@@ -175,14 +174,14 @@ public class PostService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public int seedPosts(User currentUser, int count, int maxReactions, boolean includeImages, boolean includeGroups) {
         if (count < 1) {
-            throw new InvalidParamException("count must be greater than 0");
+            throw new BadRequestException("count must be greater than 0");
         }
 
         int limitedCount = Math.min(count, 100);
         int limitedMaxReactions = Math.max(0, Math.min(maxReactions, 50));
         Set<String> validTags = new LinkedHashSet<>(tagNeo4jRepository.findLeafTagsToList());
         if (validTags.isEmpty()) {
-            throw new InvalidParamException("Cannot seed posts because no interest tags exist");
+            throw new BadRequestException("Cannot seed posts because no interest tags exist");
         }
 
         List<User> users = userRepository.findAll().stream()
@@ -196,7 +195,7 @@ public class PostService {
             users.add(currentUser);
         }
         if (users.isEmpty()) {
-            throw new InvalidParamException("Cannot seed posts because no active users with valid interests exist");
+            throw new BadRequestException("Cannot seed posts because no active users with valid interests exist");
         }
 
         int successCount = 0;
@@ -445,7 +444,7 @@ public class PostService {
 
         long existingTagsCount = tagNeo4jRepository.countByNameIn(dto.getTags());
         if (existingTagsCount != dto.getTags().size()) {
-            throw new DataNotFoundException("Một hoặc nhiều chủ đề không tồn tại");
+            throw new ResourceNotFoundException("Một hoặc nhiều chủ đề không tồn tại");
         }
 
         Post sharedPost = Post.builder()
@@ -491,7 +490,7 @@ public class PostService {
 
     public Post getActivePostById(String postId) throws Exception {
         return postRepository.findByIdAndStatus(postId, ContentStatus.ACTIVE)
-                .orElseThrow(() -> new DataNotFoundException("Bài viết không tồn tại hoặc đã bị xóa"));
+                .orElseThrow(() -> new ResourceNotFoundException("Bài viết không tồn tại hoặc đã bị xóa"));
     }
 
     public PostResponse getActivePostResponseById(String postId, User user) throws Exception {
@@ -517,7 +516,7 @@ public class PostService {
 
     public Post getPostById(String postId) throws Exception {
         return postRepository.findById(postId)
-                .orElseThrow(() -> new DataNotFoundException("Post not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
     }
 
     public String getUserReaction(Post post, User user) {
@@ -551,7 +550,7 @@ public class PostService {
         }
 
         if (!canDelete) {
-            throw new ForbiddenAccessException("Bạn không có quyền xóa bài viết này");
+            throw new ForbiddenException("Bạn không có quyền xóa bài viết này");
         }
 
         post.setStatus(ContentStatus.DELETED);
@@ -572,7 +571,7 @@ public class PostService {
             String cursor,
             User currentUser) throws Exception {
         userRepository.findById(userId)
-                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+                .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
         validatePostFeedPageSize(size);
         PostCursor decodedCursor = decodePostCursor(cursor);
         int limitPlusOne = size + 1;
@@ -648,7 +647,7 @@ public class PostService {
 
     private void validatePostFeedPageSize(int size) {
         if (size < 1 || size > MAX_POST_FEED_PAGE_SIZE) {
-            throw new InvalidParamException(
+            throw new BadRequestException(
                     "Post feed size must be between 1 and " + MAX_POST_FEED_PAGE_SIZE);
         }
     }
@@ -667,7 +666,7 @@ public class PostService {
             }
             return new PostCursor(LocalDateTime.parse(parts[0]), parts[1]);
         } catch (IllegalArgumentException | DateTimeParseException e) {
-            throw new InvalidParamException("Invalid post cursor");
+            throw new BadRequestException("Invalid post cursor");
         }
     }
 
@@ -716,9 +715,9 @@ public class PostService {
             String cursor,
             User user) throws Exception {
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa"));
+                .orElseThrow(() -> new ResourceNotFoundException("Nhóm không tồn tại hoặc đã bị xóa"));
         if (group.getStatus() == GroupStatus.DELETED) {
-            throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
+            throw new ResourceNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
         }
         validatePostFeedPageSize(size);
         PostCursor decodedCursor = decodePostCursor(cursor);
@@ -901,7 +900,7 @@ public class PostService {
 
     public Page<AdminPostResponse> getPostsByUserId(String userId, Pageable pageable) throws Exception {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+                .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
 
         Page<Post> posts = postRepository.findByUser(user, pageable);
         Map<String, List<String>> tagsMap = getTagsMap(posts.getContent());
@@ -955,7 +954,7 @@ public class PostService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void adminActivePost(String postId) throws Exception {
         Post post = postRepository.findById(postId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bài viết"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bài viết"));
 
         post.setStatus(ContentStatus.ACTIVE);
         postRepository.saveAndFlush(post);

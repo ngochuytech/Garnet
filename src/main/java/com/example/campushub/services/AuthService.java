@@ -17,8 +17,8 @@ import com.example.campushub.dtos.auth.LoginDTO;
 import com.example.campushub.dtos.auth.RegisterDTO;
 import com.example.campushub.dtos.auth.ResetPasswordDTO;
 import com.example.campushub.enums.UserActionTokenPurpose;
-import com.example.campushub.exceptions.DataNotFoundException;
-import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
+import com.example.campushub.exceptions.BadRequestException;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.models.jpa.UserActionToken;
 import com.example.campushub.repositories.jpa.UserActionTokenRepository;
@@ -62,10 +62,10 @@ public class AuthService {
 
     public String login(LoginDTO loginDTO) throws Exception {
         User user = userRepository.findByEmail(loginDTO.getEmail())
-            .orElseThrow(() -> new DataNotFoundException("Invalid email or password"));
+            .orElseThrow(() -> new BadRequestException("Email hoặc mật khẩu không chính xác"));
 
         if (!passwordEncoder.matches(loginDTO.getPassword(), user.getPassword())) {
-            throw new DataNotFoundException("Invalid email or password");
+            throw new BadRequestException("Email hoặc mật khẩu không chính xác");
         }
 
         return jwtTokenProvider.generateToken(user);
@@ -97,18 +97,18 @@ public class AuthService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void resetPassword(ResetPasswordDTO dto) throws Exception {
         if (!dto.getNewPassword().equals(dto.getConfirmPassword())) {
-            throw new InvalidParamException("Mật khẩu mới và xác nhận mật khẩu không khớp");
+            throw new BadRequestException("Mật khẩu mới và xác nhận mật khẩu không khớp");
         }
 
         UserActionToken actionToken = userActionTokenRepository
                 .findByTokenHashAndPurposeForUpdate(hashToken(dto.getToken()), UserActionTokenPurpose.PASSWORD_RESET)
                 .orElse(null);
         if (actionToken == null || actionToken.getConsumedAt() != null || actionToken.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new InvalidParamException("Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn");
+            throw new BadRequestException("Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn");
         }
 
         User user = userRepository.findById(actionToken.getUser().getId())
-                .orElseThrow(() -> new DataNotFoundException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
         userRepository.save(user);
         actionToken.setConsumedAt(LocalDateTime.now());

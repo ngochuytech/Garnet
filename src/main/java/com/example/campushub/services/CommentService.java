@@ -17,7 +17,7 @@ import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReactionType;
 import com.example.campushub.events.NotificationEvent;
-import com.example.campushub.exceptions.DataNotFoundException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
 import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.CommentReaction;
 import com.example.campushub.models.jpa.CommentReactionId;
@@ -52,7 +52,7 @@ public class CommentService {
         } else {
             // Các lần load tiếp theo
             Comment lastComment = commentRepository.findById(lastCommentId)
-                    .orElseThrow(() -> new DataNotFoundException("Khong tim thay comment cuoi cung"));
+                    .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay comment cuoi cung"));
             comments = commentRepository.findByPostIdAndParentCommentIsNullAndStatusAndCreatedAtLessThanOrderByCreatedAtDesc(
                     postId, ContentStatus.ACTIVE, lastComment.getCreatedAt(), fetchPageable);
         }
@@ -72,7 +72,7 @@ public class CommentService {
                     commentId, ContentStatus.ACTIVE, PageRequest.of(0 , limit));
         } else {
             Comment lastComment = commentRepository.findById(lastCommentId)
-                .orElseThrow(() -> new DataNotFoundException("Bình luận không tồn tại"));
+                .orElseThrow(() -> new ResourceNotFoundException("Bình luận không tồn tại"));
             replies = commentRepository.findByParentComment_IdAndStatusAndCreatedAtGreaterThanOrderByCreatedAtAsc(
                     commentId, ContentStatus.ACTIVE, lastComment.getCreatedAt(), PageRequest.of(0, limit));
         }
@@ -126,7 +126,7 @@ public class CommentService {
 
         if (parentId != null) {
             Comment parentComment = commentRepository.findById(parentId)
-                    .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận mà bạn muốn phản hồi"));
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bình luận mà bạn muốn phản hồi"));
 
             comment.setParentComment(parentComment);
             
@@ -163,7 +163,7 @@ public class CommentService {
     @Transactional("transactionManager")
     public void likeComment(User user, String commentId) throws Exception {
         Comment comment = commentRepository.findByIdForUpdate(commentId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bình luận"));
         CommentReaction commentReaction = commentReactionRepository.findByCommentAndUser(comment, user);
 
         boolean isNewLike = false;
@@ -209,7 +209,7 @@ public class CommentService {
     @Transactional("transactionManager")
     public void dislikeComment(User user, String commentId) throws Exception {
         Comment comment = commentRepository.findByIdForUpdate(commentId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy bình luận"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bình luận"));
         CommentReaction commentReaction = commentReactionRepository.findByCommentAndUser(comment, user);
 
         if (commentReaction == null) {
@@ -256,7 +256,7 @@ public class CommentService {
 
     public Page<AdminCommentResponse> getCommentsByUserId(String userId, Pageable pageable) throws Exception {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new DataNotFoundException("Người dùng không tồn tại"));
+                .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
 
         Page<Comment> comments = commentRepository.findByUser(user, pageable);
         Map<String, Integer> replyCounts = getReplyCountsMap(comments.getContent());

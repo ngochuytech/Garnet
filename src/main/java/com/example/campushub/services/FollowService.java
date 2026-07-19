@@ -27,8 +27,8 @@ import com.example.campushub.enums.Neo4jEventType;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.UserStatus;
 import com.example.campushub.events.NotificationEvent;
-import com.example.campushub.exceptions.DataNotFoundException;
-import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
+import com.example.campushub.exceptions.BadRequestException;
 import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.Notification;
 import com.example.campushub.models.jpa.User;
@@ -71,20 +71,20 @@ public class FollowService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void followUser(String currentUserId, String targetUserId) throws Exception {
         if (currentUserId.equals(targetUserId)) {
-            throw new InvalidParamException("Không thể tự theo dõi chính mình");
+            throw new BadRequestException("Không thể tự theo dõi chính mình");
         }
         User currentUser = userRepository.findById(currentUserId)
-                .orElseThrow(() -> new DataNotFoundException("Người dùng hiện tại không tồn tại"));
+                .orElseThrow(() -> new ResourceNotFoundException("Người dùng hiện tại không tồn tại"));
         User targetUser = userRepository.findById(targetUserId)
-            .orElseThrow(() -> new DataNotFoundException("Người dùng bạn theo dõi không tồn tại"));
+            .orElseThrow(() -> new ResourceNotFoundException("Người dùng bạn theo dõi không tồn tại"));
 
         if (targetUser.getStatus() != UserStatus.ACTIVE) {
-            throw new InvalidParamException("Khong thể theo dõi người dùng chưa kích hoạt hoặc đã bị vô hiệu hóa");
+            throw new BadRequestException("Khong thể theo dõi người dùng chưa kích hoạt hoặc đã bị vô hiệu hóa");
         }
 
         UserFollowId followId = new UserFollowId(currentUserId, targetUserId);
         if (userFollowRepository.existsById(followId)) {
-            throw new InvalidParamException("Bạn đã theo dõi người dùng này");
+            throw new BadRequestException("Bạn đã theo dõi người dùng này");
         }
 
         userFollowRepository.save(UserFollow.builder()
@@ -116,10 +116,10 @@ public class FollowService {
     @Transactional("transactionManager")
     public void unfollowUser(String currentUserId, String targetUserId) throws Exception {
         if (currentUserId.equals(targetUserId)) {
-            throw new InvalidParamException("Không thể bỏ theo dõi chính mình");
+            throw new BadRequestException("Không thể bỏ theo dõi chính mình");
         }
         if (!userRepository.existsById(targetUserId)) {
-            throw new InvalidParamException("Người dùng bạn bỏ theo dõi không tồn tại");
+            throw new ResourceNotFoundException("Người dùng bạn bỏ theo dõi không tồn tại");
         }
 
         userFollowRepository.deleteById(new UserFollowId(currentUserId, targetUserId));
@@ -285,7 +285,7 @@ public class FollowService {
     public FollowStats countFollowersAndFollowing(String userId) throws Exception {
         FollowStats stats = userNeo4jRepository.getFollowStats(userId);
         if (stats == null) {
-            throw new InvalidParamException("Lỗi khi đếm số lượng người theo dõi và đang theo dõi");
+            throw new BadRequestException("Lỗi khi đếm số lượng người theo dõi và đang theo dõi");
         }
         return stats;
     }

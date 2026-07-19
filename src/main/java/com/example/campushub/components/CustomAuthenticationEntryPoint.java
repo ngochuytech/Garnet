@@ -1,4 +1,4 @@
-package com.example.campushub.exceptions.auth;
+package com.example.campushub.components;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

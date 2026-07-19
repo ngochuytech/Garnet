@@ -6,7 +6,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.example.campushub.exceptions.DataNotFoundException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.models.neo4j.InterestNode;
 import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
@@ -27,7 +27,7 @@ public class TopicService {
     public TopicResponse getTopicDetails(String topicName) throws Exception {
         TopicResponse topic = tagNeo4jRepository.getTopicDetails(topicName);
         if (topic == null) {
-            throw new DataNotFoundException("Chủ đề không tồn tại: " + topicName);
+            throw new ResourceNotFoundException("Chủ đề không tồn tại: " + topicName);
         }
         return topic;
     }
@@ -45,7 +45,7 @@ public class TopicService {
             throw new InvalidParameterException("Kích thước ảnh tối đa 5MB");
         }
         InterestNode tagNode = tagNeo4jRepository.findById(topicName).orElseThrow(() -> 
-            new DataNotFoundException("Chủ đề không tồn tại: " + topicName));
+            new ResourceNotFoundException("Chủ đề không tồn tại: " + topicName));
 
         String imageUrl = fileUploadService.uploadFile(image, "topics");
         tagNeo4jRepository.updateTopicImage(topicName, imageUrl);

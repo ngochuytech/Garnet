@@ -16,10 +16,9 @@ import com.example.campushub.enums.ReportType;
 import com.example.campushub.enums.UserRole;
 import com.example.campushub.enums.UserStatus;
 import com.example.campushub.events.NotificationEvent;
-import com.example.campushub.exceptions.DataNotFoundException;
-import com.example.campushub.exceptions.ForbiddenAccessException;
-import com.example.campushub.exceptions.InvalidContentStateException;
-import com.example.campushub.exceptions.InvalidParamException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
+import com.example.campushub.exceptions.ForbiddenException;
+import com.example.campushub.exceptions.BadRequestException;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.GroupMemberId;
@@ -140,7 +139,7 @@ public class GroupService {
                 "Môi trường xanh");
         List<User> activeUsers = userRepository.findByStatus(UserStatus.ACTIVE);
         if (activeUsers.isEmpty()) {
-            throw new InvalidParamException("Cannot seed groups because no active users exist");
+            throw new BadRequestException("Cannot seed groups because no active users exist");
         }
 
         int successCount = 0;
@@ -250,9 +249,9 @@ public class GroupService {
 
     public GroupResponse getGroupById(User currentUser, String groupId) throws Exception {
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
         if (group.getStatus() == GroupStatus.DELETED) {
-            throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
+            throw new ResourceNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
         }
         GroupMember currentUserMember = findCurrentUserMember(currentUser, groupId);
         GroupMember leaderMember = findLeaderMember(groupId);
@@ -263,9 +262,9 @@ public class GroupService {
     @Transactional(value = "transactionManager", readOnly = true)
     public GroupStatusResponse getGroupStatus(String groupId) throws Exception {
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
         if (group.getStatus() == GroupStatus.DELETED) {
-            throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
+            throw new ResourceNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
         }
         List<Report> groupReports = reportRepository.findAllByTargetIdAndTargetTypeOrderByCreatedAtDesc(groupId,
                 ReportType.GROUP);
@@ -290,13 +289,13 @@ public class GroupService {
 
     public Page<GroupMemberResponse> getGroupMembers(String groupId, Pageable pageable) throws Exception {
         if (!groupRepository.existsById(groupId)) {
-            throw new DataNotFoundException("Không tìm thấy nhóm");
+            throw new ResourceNotFoundException("Không tìm thấy nhóm");
         }
 
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
         if (group.getStatus() == GroupStatus.DELETED) {
-            throw new DataNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
+            throw new ResourceNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
         }
 
         return groupMemberRepository.findByGroup_IdAndStatus(groupId, MemberStatus.APPROVED, pageable)
@@ -331,12 +330,12 @@ public class GroupService {
             throws Exception {
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
-                .orElseThrow(() -> new ForbiddenAccessException("Bạn không phải là thành viên của nhóm này"));
+                .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
 
         assertGroupActive(currentUserMember.getGroup());
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
-            throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền xem danh sách chờ duyệt");
+            throw new ForbiddenException("Chỉ trưởng nhóm mới có quyền xem danh sách chờ duyệt");
         }
 
         return groupMemberRepository.findByGroup_IdAndStatus(groupId, MemberStatus.PENDING, pageable)
@@ -347,16 +346,16 @@ public class GroupService {
     public GroupResponse updateGroupAvatar(User currentUser, String groupId, MultipartFile file) throws Exception {
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
-                .orElseThrow(() -> new Exception("Bạn không phải là thành viên của nhóm này"));
+                .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
 
         assertGroupActive(currentUserMember.getGroup());
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
-            throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền thay đổi ảnh đại diện nhóm");
+            throw new ForbiddenException("Chỉ trưởng nhóm mới có quyền thay đổi ảnh đại diện nhóm");
         }
 
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
 
         String avatarUrl = fileUploadService.uploadFile(file, "groups/avatars");
         group.setAvatarUrl(avatarUrl);
@@ -369,16 +368,16 @@ public class GroupService {
     public GroupResponse updateGroupCover(User currentUser, String groupId, MultipartFile file) throws Exception {
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
-                .orElseThrow(() -> new Exception("Bạn không phải là thành viên của nhóm này"));
+                .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
 
         assertGroupActive(currentUserMember.getGroup());
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
-            throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền thay đổi ảnh bìa nhóm");
+            throw new ForbiddenException("Chỉ trưởng nhóm mới có quyền thay đổi ảnh bìa nhóm");
         }
 
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
 
         String coverUrl = fileUploadService.uploadFile(file, "groups/covers");
         group.setCoverUrl(coverUrl);
@@ -390,7 +389,7 @@ public class GroupService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void joinGroup(User user, String groupId) throws Exception {
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm này"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm này"));
 
         if (group.getStatus() != GroupStatus.ACTIVE) {
             throw new Exception("Nhóm này không còn hoạt động");
@@ -437,24 +436,24 @@ public class GroupService {
     public void approveJoinRequest(User currentUser, String groupId, String targetUserId) throws Exception {
         // Serialize changes to this group's membership count.
         Group group = groupRepository.findByIdForUpdate(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
 
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
-                .orElseThrow(() -> new Exception("Bạn không phải là thành viên của nhóm này"));
+                .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
 
         assertGroupActive(group);
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
-            throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền duyệt thành viên");
+            throw new ForbiddenException("Chỉ trưởng nhóm mới có quyền duyệt thành viên");
         }
 
         GroupMemberId targetId = new GroupMemberId(groupId, targetUserId);
         GroupMember targetMember = groupMemberRepository.findById(targetId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy yêu cầu tham gia của người dùng này"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu tham gia của người dùng này"));
 
         if (targetMember.getStatus() != MemberStatus.PENDING) {
-            throw new InvalidContentStateException("Yêu cầu tham gia không còn chờ duyệt");
+            throw new BadRequestException("Yêu cầu tham gia không còn chờ duyệt");
         }
 
         targetMember.setStatus(MemberStatus.APPROVED);
@@ -484,17 +483,17 @@ public class GroupService {
     public void rejectJoinRequest(User currentUser, String groupId, String targetUserId) throws Exception {
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
-                .orElseThrow(() -> new Exception("Bạn không phải là thành viên của nhóm này"));
+                .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
 
         assertGroupActive(currentUserMember.getGroup());
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
-            throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền từ chối thành viên");
+            throw new ForbiddenException("Chỉ trưởng nhóm mới có quyền từ chối thành viên");
         }
 
         GroupMemberId targetId = new GroupMemberId(groupId, targetUserId);
         GroupMember targetMember = groupMemberRepository.findById(targetId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy yêu cầu tham gia của người dùng này"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu tham gia của người dùng này"));
 
         if (targetMember.getStatus() == MemberStatus.APPROVED) {
             throw new Exception("Người dùng này đã là thành viên của nhóm");
@@ -514,16 +513,16 @@ public class GroupService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void kickMember(User currentUser, String groupId, String targetUserId) throws Exception {
         Group group = groupRepository.findByIdForUpdate(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
 
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
-                .orElseThrow(() -> new Exception("Bạn không phải là thành viên của nhóm này"));
+                .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
 
         assertGroupActive(group);
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
-            throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền đuổi thành viên");
+            throw new ForbiddenException("Chỉ trưởng nhóm mới có quyền đuổi thành viên");
         }
 
         if (currentUser.getId().equals(targetUserId)) {
@@ -532,7 +531,7 @@ public class GroupService {
 
         GroupMemberId targetId = new GroupMemberId(groupId, targetUserId);
         GroupMember targetMember = groupMemberRepository.findById(targetId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy thành viên này trong nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thành viên này trong nhóm"));
 
         if (targetMember.getStatus() != MemberStatus.APPROVED) {
             throw new Exception("Người dùng này chưa phải là thành viên chính thức của nhóm");
@@ -561,14 +560,14 @@ public class GroupService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void leaveGroup(User currentUser, String groupId) throws Exception {
         Group group = groupRepository.findByIdForUpdate(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
 
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
-                .orElseThrow(() -> new RuntimeException("Bạn chưa tham gia nhóm này"));
+                .orElseThrow(() -> new ForbiddenException("Bạn chưa tham gia nhóm này"));
 
         if (currentUserMember.getRole() == MemberRole.LEADER) {
-            throw new ForbiddenAccessException(
+            throw new ForbiddenException(
                     "Trưởng nhóm không thể tự rời nhóm. Hãy nhường quyền cho người khác trước.");
         }
 
@@ -591,15 +590,15 @@ public class GroupService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void deleteGroup(User currentUser, String groupId) throws Exception {
         Group group = groupRepository.findByIdForUpdate(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Group not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Group not found"));
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
-                .orElseThrow(() -> new ForbiddenAccessException("Bạn không phải là thành viên của nhóm này"));
+                .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
 
         assertGroupActive(currentUserMember.getGroup());
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
-            throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền xóa nhóm");
+            throw new ForbiddenException("Chỉ trưởng nhóm mới có quyền xóa nhóm");
         }
 
         assertGroupActive(group);
@@ -642,16 +641,16 @@ public class GroupService {
 
     private void assertGroupActive(Group group) {
         if (group.getStatus() != GroupStatus.ACTIVE) {
-            throw new ForbiddenAccessException("Nhóm này đã bị lưu trữ và không còn cho phép thao tác mới");
+            throw new ForbiddenException("Nhóm này đã bị lưu trữ và không còn cho phép thao tác mới");
         }
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public GroupResponse adminLockGroup(User admin, String groupId) throws Exception {
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
         if (group.getStatus() == GroupStatus.DELETED) {
-            throw new InvalidContentStateException("Nhóm này đã bị xóa");
+            throw new BadRequestException("Nhóm này đã bị xóa");
         }
 
         group.setStatus(GroupStatus.ARCHIVED);
@@ -665,9 +664,9 @@ public class GroupService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public GroupResponse adminUnlockGroup(User admin, String groupId) throws Exception {
         Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Không tìm thấy nhóm"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
         if (group.getStatus() == GroupStatus.DELETED) {
-            throw new InvalidContentStateException("Nhóm này đã bị xóa");
+            throw new BadRequestException("Nhóm này đã bị xóa");
         }
 
         group.setStatus(GroupStatus.ACTIVE);
@@ -681,15 +680,15 @@ public class GroupService {
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public GroupResponse updateGroupName(User currentUser, String groupId, String name) throws Exception {
         Group group = groupRepository.findByIdForUpdate(groupId)
-                .orElseThrow(() -> new DataNotFoundException("Group not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Group not found"));
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
-                .orElseThrow(() -> new ForbiddenAccessException("Bạn không phải là thành viên của nhóm này"));
+                .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
 
         assertGroupActive(currentUserMember.getGroup());
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
-            throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền thay đổi tên nhóm");
+            throw new ForbiddenException("Chỉ trưởng nhóm mới có quyền thay đổi tên nhóm");
         }
 
         assertGroupActive(group);
@@ -714,12 +713,12 @@ public class GroupService {
     public GroupResponse updateGroupDescription(User currentUser, String groupId, String description) throws Exception {
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
-                .orElseThrow(() -> new ForbiddenAccessException("Bạn không phải là thành viên của nhóm này"));
+                .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
 
         assertGroupActive(currentUserMember.getGroup());
 
         if (currentUserMember.getRole() != MemberRole.LEADER) {
-            throw new ForbiddenAccessException("Chỉ trưởng nhóm mới có quyền thay đổi mô tả nhóm");
+            throw new ForbiddenException("Chỉ trưởng nhóm mới có quyền thay đổi mô tả nhóm");
         }
 
         Group group = currentUserMember.getGroup();

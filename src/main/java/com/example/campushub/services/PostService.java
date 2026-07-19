@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.example.campushub.dtos.record.posts.PostCreatedPayload;
 import com.example.campushub.dtos.record.posts.PostStatusChangedPayload;
 import com.example.campushub.dtos.record.posts.PostSharedPayload;
 import com.example.campushub.dtos.record.posts.PostStats;
@@ -158,19 +159,17 @@ public class PostService {
                 .toList();
         postTagRepository.saveAll(postTags);
 
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("postId", post.getId());
-        payload.put("authorId", user.getId());
-        payload.put("groupId", dto.getGroupId());
-        payload.put("tagNames", dto.getTags());
-        payload.put("createdAt", post.getCreatedAt());  
-
-        String payloadJson = toJson(payload);
+        PostCreatedPayload payload = new PostCreatedPayload(
+                post.getId(),
+                user.getId(),
+                dto.getGroupId(),
+                new java.util.HashSet<>(dto.getTags()),
+                post.getCreatedAt());
 
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
-            Neo4jEventType.POST_CREATED, 
-            post.getId(),
-            payloadJson));
+                Neo4jEventType.POST_CREATED,
+                post.getId(),
+                toJson(payload)));
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -203,40 +202,51 @@ public class PostService {
         int successCount = 0;
         for (int i = 0; i < limitedCount; i++) {
             Post post = null;
-            try {
-                User author = randomElement(users);
-                List<String> authorInterests = findValidUserInterestNames(author.getId(), validTags);
-                if (authorInterests.isEmpty()) {
-                    continue;
-                }
-                Set<String> postTags = pickRandomTags(authorInterests, 1, 3);
-                Group group = includeGroups ? pickRandomApprovedGroup(author) : null;
-                String seed = faker.internet().uuid();
-
-                post = Post.builder()
-                        .content(buildSeedPostContent(postTags))
-                        .user(author)
-                        .group(group)
-                        .build();
-                post.setCreatedAt(randomCreatedAtWithinLastDays(3));
-
-                if (includeImages && ThreadLocalRandom.current().nextInt(100) < 40) {
-                    post.setImages(List.of("https://picsum.photos/seed/" + seed + "/900/600"));
-                }
-
-                post = postRepository.save(post);
-                postNeo4jRepository.createPost(author.getId(), post.getId(), postTags, post.getCreatedAt());
-                if (group != null) {
-                    postNeo4jRepository.linkPostToGroup(post.getId(), group.getId());
-                }
-
-                seedPostReactions(post, users, limitedMaxReactions);
-                successCount++;
-            } catch (Exception e) {
-                if (post != null && post.getId() != null) {
-                    postRepository.delete(post);
-                }
+            User author = randomElement(users);
+            List<String> authorInterests = findValidUserInterestNames(author.getId(), validTags);
+            if (authorInterests.isEmpty()) {
+                continue;
             }
+            Set<String> postTags = pickRandomTags(authorInterests, 1, 3);
+            Group group = includeGroups ? pickRandomApprovedGroup(author) : null;
+            String seed = faker.internet().uuid();
+
+            post = Post.builder()
+                    .content(buildSeedPostContent(postTags))
+                    .user(author)
+                    .group(group)
+                    .build();
+            post.setCreatedAt(randomCreatedAtWithinLastDays(3));
+
+            if (includeImages && ThreadLocalRandom.current().nextInt(100) < 40) {
+                post.setImages(List.of("https://picsum.photos/seed/" + seed + "/900/600"));
+            }
+
+            post = postRepository.save(post);
+
+            Post savedPost = post;
+            List<PostTag> postTagsMain = postTags.stream()
+                    .map(tagName -> PostTag.builder()
+                            .id(new PostTagId(savedPost.getId(), tagName))
+                            .post(savedPost)
+                            .build())
+                    .toList();
+            postTagRepository.saveAll(postTagsMain);
+
+            seedPostReactions(post, users, limitedMaxReactions);
+
+            PostCreatedPayload payload = new PostCreatedPayload(
+                    savedPost.getId(),
+                    author.getId(),
+                    group != null ? group.getId() : null,
+                    postTags,
+                    savedPost.getCreatedAt());
+
+            neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                    Neo4jEventType.POST_CREATED,
+                    savedPost.getId(),
+                    toJson(payload)));
+            successCount++;
         }
         return successCount;
     }
@@ -454,17 +464,16 @@ public class PostService {
         postTagRepository.saveAll(postTags);
 
         PostSharedPayload payload = new PostSharedPayload(
-            sharedPost.getId(),
-            user.getId(),
-            originalPost.getId(),
-            dto.getTags(),
-            sharedPost.getCreatedAt()
-        );
+                sharedPost.getId(),
+                user.getId(),
+                originalPost.getId(),
+                dto.getTags(),
+                sharedPost.getCreatedAt());
 
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
-            Neo4jEventType.POST_SHARED, 
-            sharedPost.getId(), 
-            toJson(payload)));
+                Neo4jEventType.POST_SHARED,
+                sharedPost.getId(),
+                toJson(payload)));
 
         if (!user.getId().equals(originalPost.getUser().getId())) {
             NotificationEvent event = NotificationEvent.builder()
@@ -550,12 +559,11 @@ public class PostService {
         postRepository.save(post);
 
         PostStatusChangedPayload payload = new PostStatusChangedPayload(
-            post.getId(),
-            ContentStatus.DELETED
-        );
+                post.getId(),
+                ContentStatus.DELETED);
 
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
-            Neo4jEventType.POST_STATUS_CHANGED, post.getId(), toJson(payload)));
+                Neo4jEventType.POST_STATUS_CHANGED, post.getId(), toJson(payload)));
     }
 
     public CursorPagedResponse<PostResponse> getActivePostsByUserId(
@@ -663,7 +671,8 @@ public class PostService {
         }
     }
 
-    private record PostCursor(LocalDateTime createdAt, String postId) {}
+    private record PostCursor(LocalDateTime createdAt, String postId) {
+    }
 
     private String encodePostCursor(PostCursorProjection post) {
         return encodePostCursor(post.getCreatedAt(), post.getId());
@@ -770,9 +779,9 @@ public class PostService {
         }
         List<PostTag> postTags = postTagRepository.findByIdPostIdIn(postIds);
         Map<String, List<String>> tagsMap = new HashMap<>();
-        for(PostTag postTag: postTags){
+        for (PostTag postTag : postTags) {
             tagsMap.computeIfAbsent(postTag.getId().getPostId(), ignored -> new ArrayList<>())
-                .add(postTag.getId().getTagName());
+                    .add(postTag.getId().getTagName());
         }
         return tagsMap;
     }
@@ -792,8 +801,7 @@ public class PostService {
         }
 
         // Like & Dislike counts
-        for (PostReactionCountProjection projection :
-                postReactionRepository.countByPostIdsGroupedByType(postIds)) {
+        for (PostReactionCountProjection projection : postReactionRepository.countByPostIdsGroupedByType(postIds)) {
             int[] postCounts = counts.get(projection.getPostId());
             if (postCounts == null) {
                 continue;
@@ -806,17 +814,17 @@ public class PostService {
         }
 
         // Comment counts
-        for (PostCountProjection projection :
-                commentRepository.countByPostIdsAndStatus(postIds, ContentStatus.ACTIVE)) {
+        for (PostCountProjection projection : commentRepository.countByPostIdsAndStatus(postIds,
+                ContentStatus.ACTIVE)) {
             int[] postCounts = counts.get(projection.getPostId());
             if (postCounts != null) {
                 postCounts[2] = projection.getCount().intValue();
             }
         }
 
-        // Share counts 
-        for (PostCountProjection projection :
-                postRepository.countSharesByPostIdsAndStatus(postIds, ContentStatus.ACTIVE)) {
+        // Share counts
+        for (PostCountProjection projection : postRepository.countSharesByPostIdsAndStatus(postIds,
+                ContentStatus.ACTIVE)) {
             int[] postCounts = counts.get(projection.getPostId());
             if (postCounts != null) {
                 postCounts[3] = projection.getCount().intValue();

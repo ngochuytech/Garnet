@@ -145,56 +145,51 @@ public class GroupService {
 
         int successCount = 0;
         for (int i = 0; i < count; i++) {
-            try {
-                User leader = randomElement(activeUsers);
-                String randomSeed = faker.internet().uuid();
-                String groupType = faker.options().nextElement(groupTypes);
-                String topic = faker.options().nextElement(topics);
-                String groupName = groupType + " " + topic;
-                if (groupRepository.existsByNameIgnoreCase(groupName)) {
-                    continue;
-                }
-
-                String description = "Nhóm dành cho sinh viên quan tâm đến " + topic.toLowerCase()
-                        + ", cùng chia sẻ tài liệu, kinh nghiệm và hoạt động trong CampusHub.";
-                String avatarUrl = "https://api.dicebear.com/9.x/shapes/svg?seed=" + randomSeed;
-                String coverUrl = "https://picsum.photos/seed/" + randomSeed + "/1200/400";
-
-                Group group = Group.builder()
-                        .name(groupName)
-                        .description(description)
-                        .avatarUrl(avatarUrl)
-                        .coverUrl(coverUrl)
-                        .memberCount(1)
-                        .status(GroupStatus.ACTIVE)
-                        .build();
-
-                group = groupRepository.save(group);
-                try {
-                    GroupNode groupNode = GroupNode.builder()
-                            .id(group.getId())
-                            .name(group.getName())
-                            .build();
-                    groupNeo4jRepository.save(groupNode);
-                    groupNeo4jRepository.addUserToGroup(leader.getId(), group.getId());
-                } catch (Exception e) {
-                    throw new RuntimeException("Tạo nhóm thất bại tại Neo4j", e);
-                }
-
-                GroupMember leaderMember = GroupMember.builder()
-                        .id(new GroupMemberId(group.getId(), leader.getId()))
-                        .group(group)
-                        .user(leader)
-                        .role(MemberRole.LEADER)
-                        .status(MemberStatus.APPROVED)
-                        .joinedAt(LocalDateTime.now())
-                        .build();
-
-                groupMemberRepository.save(leaderMember);
-                successCount++;
-            } catch (Exception e) {
-                // Bỏ qua lỗi và tiếp tục tạo nhóm tiếp theo
+            User leader = randomElement(activeUsers);
+            String randomSeed = faker.internet().uuid();
+            String groupType = faker.options().nextElement(groupTypes);
+            String topic = faker.options().nextElement(topics);
+            String groupName = groupType + " " + topic;
+            if (groupRepository.existsByNameIgnoreCase(groupName)) {
+                continue;
             }
+
+            String description = "Nhóm dành cho sinh viên quan tâm đến " + topic.toLowerCase()
+                    + ", cùng chia sẻ tài liệu, kinh nghiệm và hoạt động trong CampusHub.";
+            String avatarUrl = "https://api.dicebear.com/9.x/shapes/svg?seed=" + randomSeed;
+            String coverUrl = "https://picsum.photos/seed/" + randomSeed + "/1200/400";
+
+            Group group = Group.builder()
+                    .name(groupName)
+                    .description(description)
+                    .avatarUrl(avatarUrl)
+                    .coverUrl(coverUrl)
+                    .memberCount(1)
+                    .status(GroupStatus.ACTIVE)
+                    .build();
+
+            group = groupRepository.save(group);
+
+            GroupMember leaderMember = GroupMember.builder()
+                    .id(new GroupMemberId(group.getId(), leader.getId()))
+                    .group(group)
+                    .user(leader)
+                    .role(MemberRole.LEADER)
+                    .status(MemberStatus.APPROVED)
+                    .joinedAt(LocalDateTime.now())
+                    .build();
+
+            groupMemberRepository.save(leaderMember);
+
+            GroupCreatedPayload payload = new GroupCreatedPayload(
+                    group.getId(),
+                    leader.getId(),
+                    group.getName());
+
+            neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                    Neo4jEventType.GROUP_CREATED, group.getId(), toJson(payload)));
+
+            successCount++;
         }
         return successCount;
     }
@@ -473,7 +468,7 @@ public class GroupService {
         GroupMemberApprovedPayload payload = new GroupMemberApprovedPayload(
                 group.getId(),
                 targetUserId);
-        
+
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
                 Neo4jEventType.GROUP_MEMBER_APPROVED, group.getId(), toJson(payload)));
 
@@ -551,10 +546,10 @@ public class GroupService {
         GroupMemberRemovedPayload payload = new GroupMemberRemovedPayload(
                 group.getId(),
                 targetUserId);
-        
+
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
                 Neo4jEventType.GROUP_MEMBER_REMOVED, groupId, toJson(payload)));
-    
+
         publishGroupNotification(
                 currentUser,
                 targetMember.getUser(),
@@ -583,11 +578,11 @@ public class GroupService {
         if (wasApprovedMember) {
             group.setMemberCount(group.getMemberCount() - 1);
             groupRepository.save(group);
-            
+
             GroupMemberRemovedPayload payload = new GroupMemberRemovedPayload(
                     group.getId(),
                     currentUser.getId());
-            
+
             neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
                     Neo4jEventType.GROUP_MEMBER_REMOVED, groupId, toJson(payload)));
         }
@@ -704,7 +699,7 @@ public class GroupService {
         GroupNameUpdatedPayload payload = new GroupNameUpdatedPayload(group.getId(), name);
 
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
-            Neo4jEventType.GROUP_NAME_UPDATED, groupId, toJson(payload)));
+                Neo4jEventType.GROUP_NAME_UPDATED, groupId, toJson(payload)));
 
         notifyApprovedMembers(
                 currentUser,

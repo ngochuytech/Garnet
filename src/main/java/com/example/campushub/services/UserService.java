@@ -257,41 +257,48 @@ public class UserService {
         List<String> mutableList = new ArrayList<>(tags);
         int successCount = 0;
         for (int i = 0; i < count; i++) {
-            try {
-                String fullName = faker.name().fullName();
-                String email = faker.internet().emailAddress();
-                String password = "password123";
-                boolean isGenderMale = faker.bool().bool();
-                LocalDate dateOfBirth = faker.date().birthdayLocalDate(19, 26);
-                String randomSeed = faker.internet().uuid();
-                String avatarUrl = "https://api.dicebear.com/9.x/adventurer/svg?seed=" + randomSeed;
+            String fullName = faker.name().fullName();
+            String email = faker.internet().emailAddress();
+            String password = "password123";
+            boolean isGenderMale = faker.bool().bool();
+            LocalDate dateOfBirth = faker.date().birthdayLocalDate(19, 26);
+            String randomSeed = faker.internet().uuid();
+            String avatarUrl = "https://api.dicebear.com/9.x/adventurer/svg?seed=" + randomSeed;
 
-                String randomDept = faker.options().nextElement(majors);
-                Collections.shuffle(mutableList);
-                List<String> randomPicksTag = mutableList.subList(3, 7);
+            String randomDept = faker.options().nextElement(majors);
+            Collections.shuffle(mutableList);
+            List<String> randomPicksTag = mutableList.subList(3, 7);
 
-                User user = new User();
-                user.setFullName(fullName);
-                user.setEmail(email);
-                user.setPassword(passwordEncoder.encode(password));
-                user.setGender(isGenderMale);
-                user.setDateOfBirth(dateOfBirth);
-                user.setAvatarUrl(avatarUrl);
-                user.setDepartment(randomDept);
-                user.setStatus(UserStatus.ACTIVE);
+            User user = new User();
+            user.setFullName(fullName);
+            user.setEmail(email);
+            user.setPassword(passwordEncoder.encode(password));
+            user.setGender(isGenderMale);
+            user.setDateOfBirth(dateOfBirth);
+            user.setAvatarUrl(avatarUrl);
+            user.setDepartment(randomDept);
+            user.setStatus(UserStatus.ACTIVE);
 
-                user.setCreatedAt(LocalDateTime.now().minusMonths(1));
-                userRepository.save(user);
-                try {
-                    userNeo4jRepository.updateUserMajor(user.getId(), randomDept);
-                    userNeo4jRepository.updateUserTags(user.getId(), Set.copyOf(randomPicksTag));
-                } catch (Exception e) {
-                    throw new RuntimeException("Tạo người dùng thất bại tại Neo4j", e);
-                }
-                successCount++;
-            } catch (Exception e) {
-                // Bỏ qua lỗi và tiếp tục tạo người dùng tiếp theo
-            }
+            user.setCreatedAt(LocalDateTime.now().minusMonths(1));
+            userRepository.save(user);
+            List<UserInterest> interests = randomPicksTag.stream()
+                    .map(name -> UserInterest.builder()
+                            .id(new UserInterestId(user.getId(), name))
+                            .user(user)
+                            .build())
+                    .toList();
+            userInterestRepository.saveAll(interests);
+
+            UserProfileUpdatedPayload payload = new UserProfileUpdatedPayload(
+                    user.getId(),
+                    randomDept,
+                    Set.copyOf(randomPicksTag));
+
+            neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                    Neo4jEventType.USER_PROFILE_UPDATED,
+                    user.getId(),
+                    toJson(payload)));
+            successCount++;
         }
         return successCount;
     }

@@ -8,8 +8,6 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -21,7 +19,6 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import com.example.campushub.components.CustomAccessDeniedHandler;
 import com.example.campushub.components.CustomAuthenticationEntryPoint;
 import com.example.campushub.filter.JwtAuthFilter;
-import com.example.campushub.repositories.jpa.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -33,15 +30,6 @@ public class SecurityConfig {
     private final JwtAuthFilter jwtAuthFilter;
     private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
     private final CustomAccessDeniedHandler customAccessDeniedHandler;
-    private final UserRepository userRepository;
-
-    @Bean
-    public UserDetailsService userDetailsService() {
-        return email -> {
-            return userRepository.findByEmail(email)
-                    .orElseThrow(() -> new UsernameNotFoundException("Không tìm thấy user này"));
-        };
-    }
 
     @Bean
     PasswordEncoder passwordEncoder() {
@@ -57,12 +45,12 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(customAuthenticationEntryPoint)
-                        .accessDeniedHandler(customAccessDeniedHandler)
-                    )   
+                        .accessDeniedHandler(customAccessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/**").permitAll()
                         .requestMatchers("/metadata/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
+                        .requestMatchers("/seed/**").permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

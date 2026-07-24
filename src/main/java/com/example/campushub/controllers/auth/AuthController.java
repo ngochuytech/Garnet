@@ -110,10 +110,6 @@ public class AuthController {
                 .body(new ApiResponse<>(true, "Logged out successfully", null));
     }
 
-    @PostMapping("/seed-users")
-    public ResponseEntity<?> seedUsers(@RequestParam(defaultValue = "1") int count){
-        return ResponseEntity.ok(ApiResponse.ok("Đã tạo " + userService.seedUser(count) + " người dùng giả thành công"));
-    }
 
     @PostMapping("/refresh-token")
     public ResponseEntity<?> refreshToken(@CookieValue(required = false) String refreshToken) throws Exception {

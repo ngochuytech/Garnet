@@ -1,7 +1,5 @@
 package com.example.campushub.components;
 
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.Date;
 import java.util.UUID;
 import java.util.function.Function;
@@ -10,14 +8,11 @@ import javax.crypto.SecretKey;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import com.example.campushub.enums.UserStatus;
 import com.example.campushub.exceptions.UnauthorizedException;
-import com.example.campushub.models.jpa.Token;
 import com.example.campushub.models.jpa.User;
-import com.example.campushub.repositories.jpa.TokenRepository;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
@@ -38,8 +33,6 @@ public class JwtTokenProvider {
 
     @Value("${jwt.expiration-refresh}")
     private Long jwtRefreshExpirationDate;
-
-    private final TokenRepository tokenRepository;
 
     public String generateToken(Authentication authentication) {
         String username = authentication.getName();
@@ -139,53 +132,6 @@ public class JwtTokenProvider {
 
     }
 
-    // Save refresh token into DB (store token string, jti, expiry and owner)
-    public Token saveRefreshToken(String refreshToken, User user) {
-        Claims claims = extractAllClaims(refreshToken);
-        String jti = claims.getId();
-        Date exp = claims.getExpiration();
-        if (jti == null) {
-            throw new UnauthorizedException("Refresh token missing jti");
-        }
-        Token tokenEntity = Token.builder()
-                .token(refreshToken)
-                .jti(jti)
-                .expiresAt(LocalDateTime.ofInstant(exp.toInstant(), ZoneId.systemDefault()))
-                .isRevoked(false)
-                .user(user)
-                .build();
-        return tokenRepository.save(tokenEntity);
-    }
-
-    public boolean validateRefreshToken(String refreshToken, User user) {
-        try {
-            Claims claims = extractAllClaims(refreshToken);
-            String jti = claims.getId();
-            if (jti == null) {
-                throw new UnauthorizedException("Refresh token thiếu jti");
-            }
-
-            Token existingToken = tokenRepository.findByJti(jti);
-            if (existingToken == null) {
-                throw new UnauthorizedException("Refresh token không tồn tại trong hệ thống");
-            }
-            if (existingToken.isRevoked()) {
-                throw new UnauthorizedException("Refresh token đã bị thu hồi. Vui lòng đăng nhập lại");
-            }
-            if (!existingToken.getUser().getId().equals(user.getId())) {
-                throw new UnauthorizedException("Refresh token không thuộc về user này");
-            }
-            if (existingToken.getExpiresAt().isBefore(LocalDateTime.now())) {
-                throw new UnauthorizedException("Refresh token đã hết hạn. Vui lòng đăng nhập lại");
-            }
-            return true;
-        } catch (ExpiredJwtException e) {
-            throw new UnauthorizedException("Refresh token đã hết hạn. Vui lòng đăng nhập lại");
-        } catch (JwtException e) {
-            throw new UnauthorizedException("Refresh token không hợp lệ");
-        }
-    }
-
     private Claims extractAllClaims(String token) {
         return Jwts.parser()
                 .verifyWith(key())
@@ -215,57 +161,5 @@ public class JwtTokenProvider {
         } catch (ExpiredJwtException e) {
             return true; // Token đã hết hạn
         }
-    }
-
-    public User getUserFromToken(String token) {
-        User user = tokenRepository.findByToken(token).getUser();
-        return user;
-    }
-
-    public String getEmail() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || authentication.getPrincipal() == null) {
-            throw new UnauthorizedException("Không tìm thấy thông tin người dùng. Vui lòng đăng nhập");
-        }
-
-        Object principal = authentication.getPrincipal();
-
-        // Kiểm tra nếu là anonymous user
-        if (principal instanceof String && "anonymousUser".equals(principal)) {
-            throw new UnauthorizedException("Bạn chưa đăng nhập. Vui lòng đăng nhập để tiếp tục");
-        }
-
-        if (principal instanceof User) {
-            return ((User) principal).getEmail();
-        } else if (principal instanceof String) {
-            return (String) principal;
-        } else {
-            return authentication.getName();
-        }
-    }
-
-    public User getCurrentUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || authentication.getPrincipal() == null) {
-            throw new UnauthorizedException("Không tìm thấy thông tin người dùng. Vui lòng đăng nhập");
-        }
-
-        Object principal = authentication.getPrincipal();
-
-        // Kiểm tra nếu là anonymous user
-        if (principal instanceof String && "anonymousUser".equals(principal)) {
-            throw new UnauthorizedException("Bạn chưa đăng nhập. Vui lòng đăng nhập để tiếp tục");
-        }
-
-        if (principal instanceof User) {
-            return (User) principal;
-        } else {
-            throw new UnauthorizedException("Principal không phải là User object. Principal type: " +
-                    principal.getClass().getName() + ", value: " + principal);
-        }
-    }
-
-    public String getCurrentUserId() {
-        return getCurrentUser().getId();
     }
 }

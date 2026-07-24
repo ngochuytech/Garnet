@@ -20,7 +20,6 @@ import com.example.campushub.models.jpa.User;
 public interface PostReactionRepository extends JpaRepository<PostReaction, PostReactionId> {
     PostReaction findByPostAndUser(Post post, User user);
     List<PostReaction> findByPostInAndUser(List<Post> posts, User user);
-    void deleteByPostAndUser(Post post, User user);
 
     @Query("SELECT pr.post.id AS postId, pr.type AS type, COUNT(pr) AS count " +
             "FROM PostReaction pr " +

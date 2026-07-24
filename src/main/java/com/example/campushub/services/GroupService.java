@@ -1,5 +1,17 @@
 package com.example.campushub.services;
 
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
 import com.example.campushub.dtos.record.groups.GroupCreatedPayload;
 import com.example.campushub.dtos.record.groups.GroupDeletedPayload;
 import com.example.campushub.dtos.record.groups.GroupMemberApprovedPayload;
@@ -14,44 +26,28 @@ import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReportStatus;
 import com.example.campushub.enums.ReportType;
 import com.example.campushub.enums.UserRole;
-import com.example.campushub.enums.UserStatus;
 import com.example.campushub.events.NotificationEvent;
-import com.example.campushub.exceptions.ResourceNotFoundException;
-import com.example.campushub.exceptions.ForbiddenException;
 import com.example.campushub.exceptions.BadRequestException;
+import com.example.campushub.exceptions.ForbiddenException;
+import com.example.campushub.exceptions.ResourceNotFoundException;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.GroupMemberId;
 import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.Report;
 import com.example.campushub.models.jpa.User;
-import com.example.campushub.models.neo4j.GroupNode;
 import com.example.campushub.repositories.jpa.GroupMemberRepository;
 import com.example.campushub.repositories.jpa.GroupRepository;
 import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
 import com.example.campushub.repositories.jpa.ReportRepository;
-import com.example.campushub.repositories.jpa.UserRepository;
-import com.example.campushub.repositories.neo4j.GroupNeo4jRepository;
 import com.example.campushub.responses.GroupMemberResponse;
 import com.example.campushub.responses.GroupResponse;
 import com.example.campushub.responses.GroupStatusResponse;
 import com.example.campushub.responses.ReportResponse;
 import com.example.campushub.responses.ReportTargetResponse;
+
 import lombok.RequiredArgsConstructor;
-import net.datafaker.Faker;
 import tools.jackson.databind.ObjectMapper;
-
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -60,13 +56,10 @@ public class GroupService {
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final ReportRepository reportRepository;
-    private final UserRepository userRepository;
-    private final GroupNeo4jRepository groupNeo4jRepository;
     private final Neo4jSyncEventRepository neo4jSyncEventRepository;
     private final ObjectMapper objectMapper;
     private final FileUploadService fileUploadService;
     private final ApplicationEventPublisher eventPublisher;
-    private final Faker faker;
 
     private String toJson(Object object) {
         try {
@@ -81,116 +74,6 @@ public class GroupService {
         GroupMember adminMember = createGroupWithLeader(user, dto);
         Group group = adminMember.getGroup();
         return GroupResponse.fromGroup(group, adminMember);
-    }
-
-    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
-    public int seedGroups(User user, int count) {
-        List<String> groupTypes = List.of(
-                "CLB",
-                "Cộng đồng",
-                "Nhóm học tập",
-                "Hội sinh viên",
-                "Không gian",
-                "Diễn đàn",
-                "Đội dự án",
-                "Ban tổ chức",
-                "Workshop",
-                "Mentoring",
-                "Study Hub",
-                "Research Lab",
-                "Career Network",
-                "Sân chơi",
-                "Câu lạc bộ");
-        List<String> topics = List.of(
-                "Lập trình",
-                "Thiết kế UI UX",
-                "Ôn thi cuối kỳ",
-                "Tiếng Anh",
-                "Nghiên cứu khoa học",
-                "Data và AI",
-                "Tình nguyện",
-                "Thể thao",
-                "Việc làm thực tập",
-                "Sách và Podcast",
-                "An toàn thông tin",
-                "Kỹ năng mềm",
-                "Khởi nghiệp",
-                "Marketing",
-                "Tài chính cá nhân",
-                "Nhiếp ảnh",
-                "Âm nhạc",
-                "Du lịch",
-                "Game Development",
-                "Mobile App",
-                "Web Development",
-                "Cloud Computing",
-                "DevOps",
-                "Blockchain",
-                "Robotics",
-                "Toán ứng dụng",
-                "Kinh tế",
-                "Truyền thông",
-                "Sự kiện sinh viên",
-                "Trao đổi tài liệu",
-                "Học bổng",
-                "Cựu sinh viên",
-                "Định hướng nghề nghiệp",
-                "Sức khỏe tinh thần",
-                "Môi trường xanh");
-        List<User> activeUsers = userRepository.findByStatus(UserStatus.ACTIVE);
-        if (activeUsers.isEmpty()) {
-            throw new BadRequestException("Cannot seed groups because no active users exist");
-        }
-
-        int successCount = 0;
-        for (int i = 0; i < count; i++) {
-            User leader = randomElement(activeUsers);
-            String randomSeed = faker.internet().uuid();
-            String groupType = faker.options().nextElement(groupTypes);
-            String topic = faker.options().nextElement(topics);
-            String groupName = groupType + " " + topic;
-            if (groupRepository.existsByNameIgnoreCase(groupName)) {
-                continue;
-            }
-
-            String description = "Nhóm dành cho sinh viên quan tâm đến " + topic.toLowerCase()
-                    + ", cùng chia sẻ tài liệu, kinh nghiệm và hoạt động trong CampusHub.";
-            String avatarUrl = "https://api.dicebear.com/9.x/shapes/svg?seed=" + randomSeed;
-            String coverUrl = "https://picsum.photos/seed/" + randomSeed + "/1200/400";
-
-            Group group = Group.builder()
-                    .name(groupName)
-                    .description(description)
-                    .avatarUrl(avatarUrl)
-                    .coverUrl(coverUrl)
-                    .memberCount(1)
-                    .status(GroupStatus.ACTIVE)
-                    .build();
-
-            group = groupRepository.save(group);
-
-            GroupMember leaderMember = GroupMember.builder()
-                    .id(new GroupMemberId(group.getId(), leader.getId()))
-                    .group(group)
-                    .user(leader)
-                    .role(MemberRole.LEADER)
-                    .status(MemberStatus.APPROVED)
-                    .joinedAt(LocalDateTime.now())
-                    .build();
-
-            groupMemberRepository.save(leaderMember);
-
-            GroupCreatedPayload payload = new GroupCreatedPayload(
-                    group.getId(),
-                    leader.getId(),
-                    group.getName());
-
-            neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
-                    Neo4jEventType.GROUP_CREATED, group.getId(), toJson(payload)));
-
-            successCount++;
-        }
-        return successCount;
     }
 
     private GroupMember createGroupWithLeader(User user, CreateGroupDTO dto) {
@@ -392,17 +275,17 @@ public class GroupService {
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm này"));
 
         if (group.getStatus() != GroupStatus.ACTIVE) {
-            throw new Exception("Nhóm này không còn hoạt động");
+            throw new ForbiddenException("Nhóm này không còn hoạt động");
         }
 
         GroupMemberId id = new GroupMemberId(group.getId(), user.getId());
 
         GroupMember member = groupMemberRepository.findById(id).orElse(null);
         if (member != null && member.getStatus() == MemberStatus.APPROVED) {
-            throw new RuntimeException("Bạn đã là thành viên của nhóm này");
+            throw new BadRequestException("Bạn đã là thành viên của nhóm này");
         }
         if (member != null && member.getStatus() == MemberStatus.PENDING) {
-            throw new RuntimeException("Bạn đang chờ duyệt vào nhóm này");
+            throw new BadRequestException("Bạn đang chờ duyệt vào nhóm này");
         }
 
         if (member != null) {
@@ -496,7 +379,7 @@ public class GroupService {
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy yêu cầu tham gia của người dùng này"));
 
         if (targetMember.getStatus() == MemberStatus.APPROVED) {
-            throw new Exception("Người dùng này đã là thành viên của nhóm");
+            throw new BadRequestException("Người dùng này đã là thành viên của nhóm");
         }
 
         targetMember.setStatus(MemberStatus.REJECTED);
@@ -526,7 +409,7 @@ public class GroupService {
         }
 
         if (currentUser.getId().equals(targetUserId)) {
-            throw new Exception("Bạn không thể tự đuổi chính mình");
+            throw new BadRequestException("Bạn không thể tự đuổi chính mình");
         }
 
         GroupMemberId targetId = new GroupMemberId(groupId, targetUserId);
@@ -534,7 +417,7 @@ public class GroupService {
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy thành viên này trong nhóm"));
 
         if (targetMember.getStatus() != MemberStatus.APPROVED) {
-            throw new Exception("Người dùng này chưa phải là thành viên chính thức của nhóm");
+            throw new BadRequestException("Người dùng này chưa phải là thành viên chính thức của nhóm");
         }
 
         groupMemberRepository.delete(targetMember);
@@ -758,9 +641,5 @@ public class GroupService {
                 .message(message)
                 .build();
         eventPublisher.publishEvent(event);
-    }
-
-    private <T> T randomElement(List<T> values) {
-        return values.get(faker.random().nextInt(values.size()));
     }
 }

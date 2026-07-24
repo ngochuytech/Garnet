@@ -76,12 +76,6 @@ public class UserGroupController {
         return ResponseEntity.ok(ApiResponse.ok(groupService.createGroup(user, dto)));
     }
 
-    @PostMapping("/seed-groups")
-    public ResponseEntity<?> seedGroups(@AuthenticationPrincipal User user,
-                                        @RequestParam(defaultValue = "10") int count) {
-        return ResponseEntity.ok(ApiResponse.ok("Đã tạo " + groupService.seedGroups(user, count) + " nhóm mẫu thành công"));
-    }
-
     @PostMapping("/{groupId}/join")
     public ResponseEntity<?> joinGroup(@AuthenticationPrincipal User user,
                                        @PathVariable String groupId) throws Exception {

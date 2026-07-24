@@ -18,7 +18,6 @@ import java.util.Optional;
 
 @Repository
 public interface GroupMemberRepository extends JpaRepository<GroupMember, GroupMemberId> {
-    List<GroupMember> findByGroup(Group group);
     List<GroupMember> findByUser(User user);
 
     @EntityGraph(attributePaths = "user")

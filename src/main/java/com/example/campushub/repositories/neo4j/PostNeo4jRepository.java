@@ -106,14 +106,4 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
 
         @Query("MATCH (p:Post {id: $postId})-[:HAS_TAG]->(t:Interest) RETURN t.name")
         List<String> getTagNamesByPostId(@Param("postId") String postId);
-
-        @Query("MATCH (p:Post) WHERE p.id IN $postIds " +
-                        "OPTIONAL MATCH (p)-[:HAS_TAG]->(t:Interest) " +
-                        "RETURN p.id AS postId, collect(t.name) AS tagNames")
-        List<PostTags> findTagsByPostIds(@Param("postIds") List<String> postIds);
-
-        @Query("MATCH (p:Post {status: 'ACTIVE'})-[:HAS_TAG]->(t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) " +
-                        "RETURN t.name AS label, count(DISTINCT p) AS value " +
-                        "ORDER BY value DESC")
-        List<TopicDistributionProjection> findActivePostTopicDistribution();
 }

@@ -31,15 +31,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // Cổng để Frontend kết nối vào Server. Dùng SockJS để hỗ trợ fallback nếu trình
-        // duyệt cũ.
         registry.addEndpoint("/ws").setAllowedOriginPatterns("*").withSockJS();
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        // Tiền tố cho các kênh mà Server sẽ đẩy dữ liệu xuống Frontend (Vd:
-        // /queue/notifications)
+        // Topic: Chat nhóm, thông báo chung
+        // Queue: Chat riêng
         registry.enableSimpleBroker("/topic", "/queue");
 
         // Tiền tố cho các request từ Frontend gửi lên Server (Vd: /app/chat)

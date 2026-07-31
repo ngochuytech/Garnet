@@ -65,4 +65,10 @@ public class Post extends BaseEntity {
     @Column(name = "image_url")
     @Builder.Default
     private List<String> images = new ArrayList<>();
+
+    @ElementCollection
+    @CollectionTable(name = "post_videos", joinColumns = @JoinColumn(name = "post_id"))
+    @Column(name = "video_url")
+    @Builder.Default
+    private List<String> videos = new ArrayList<>();
 }

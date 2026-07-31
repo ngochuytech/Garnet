@@ -1,5 +1,20 @@
 package com.example.campushub.controllers.users;
 
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.example.campushub.dtos.users.CreateGroupDTO;
 import com.example.campushub.dtos.users.CreateReportGroupDTO;
 import com.example.campushub.dtos.users.UpdateGroupDescriptionDTO;
@@ -10,15 +25,9 @@ import com.example.campushub.responses.PagedResponse;
 import com.example.campushub.services.GroupService;
 import com.example.campushub.services.PostService;
 import com.example.campushub.services.ReportService;
+
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/users/groups")
@@ -108,15 +117,15 @@ public class UserGroupController {
     @PostMapping("/{groupId}/avatar")
     public ResponseEntity<?> updateGroupAvatar(@AuthenticationPrincipal User currentUser,
                                                @PathVariable String groupId,
-                                               @RequestParam("file") MultipartFile file) throws Exception {
-        return ResponseEntity.ok(ApiResponse.ok(groupService.updateGroupAvatar(currentUser, groupId, file)));
+                                               @RequestParam String avatarUrl) throws Exception {
+        return ResponseEntity.ok(ApiResponse.ok(groupService.updateGroupAvatar(currentUser, groupId, avatarUrl)));
     }
 
     @PostMapping("/{groupId}/cover")
     public ResponseEntity<?> updateGroupCover(@AuthenticationPrincipal User currentUser,
                                               @PathVariable String groupId,
-                                              @RequestParam("file") MultipartFile file) throws Exception {
-        return ResponseEntity.ok(ApiResponse.ok(groupService.updateGroupCover(currentUser, groupId, file)));
+                                              @RequestParam String coverUrl) throws Exception {
+        return ResponseEntity.ok(ApiResponse.ok(groupService.updateGroupCover(currentUser, groupId, coverUrl)));
     }
 
     @PostMapping("/{groupId}/approve/{targetUserId}")

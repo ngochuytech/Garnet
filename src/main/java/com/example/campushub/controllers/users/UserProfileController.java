@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.dtos.users.ProfileSetUpDTO;
 import com.example.campushub.dtos.users.UpdateInformationDTO;
@@ -107,8 +106,8 @@ public class UserProfileController {
 
     @PutMapping("/avatar")
     public ResponseEntity<?> updateAvatar(@AuthenticationPrincipal User currentUser,
-            @RequestParam("avatarFile") MultipartFile avatarFile) throws Exception {
-        userService.updateAvatarUser(currentUser, avatarFile);
+            @RequestParam String avatarUrl) throws Exception {
+        userService.updateAvatarUser(currentUser, avatarUrl);
         return ResponseEntity.ok().body(ApiResponse.ok("Cập nhật ảnh đại diện thành công"));
     }
 

@@ -12,7 +12,6 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.dtos.record.profiles.UserProfileUpdatedPayload;
 import com.example.campushub.dtos.users.UpdateInformationDTO;
@@ -52,7 +51,6 @@ public class UserService implements UserDetailsService {
     private final Neo4jSyncEventRepository neo4jSyncEventRepository;
     private final UserInterestRepository userInterestRepository;
     private final ObjectMapper objectMapper;
-    private final FileUploadService fileUploadService;
 
     private UserStatus parseAndValidateUserStatus(String status) {
         if (status == null || status.isBlank())
@@ -140,21 +138,10 @@ public class UserService implements UserDetailsService {
                 toJson(payload)));
     }
 
-    public void updateAvatarUser(User user, MultipartFile avatarFile) throws Exception {
-        if (avatarFile == null || avatarFile.isEmpty()) {
-            throw new IllegalArgumentException("File ảnh không được để trống");
+    public void updateAvatarUser(User user, String avatarUrl) throws Exception {
+        if (avatarUrl == null || avatarUrl.isBlank()) {
+            throw new IllegalArgumentException("Đường dẫn ảnh đại diện không được để trống");
         }
-        // Validate file type and size
-        String contentType = avatarFile.getContentType();
-        if (contentType == null || !contentType.startsWith("image/")) {
-            throw new BadRequestException("File phải là định dạng hình ảnh");
-        }
-        if (avatarFile.getSize() > 5 * 1024 * 1024) { // 5MB limit
-            throw new BadRequestException("Kích thước ảnh tối đa 5MB.");
-        }
-
-        // Upload to Cloudinary and get the URL
-        String avatarUrl = fileUploadService.uploadFile(avatarFile, "avatars");
 
         user.setAvatarUrl(avatarUrl);
         userRepository.save(user);

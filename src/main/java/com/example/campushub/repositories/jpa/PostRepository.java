@@ -9,14 +9,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
 import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.projections.PostCountProjection;
 
-@Repository
 public interface PostRepository extends JpaRepository<Post, String> {
         List<Post> findByUser(User user);
 

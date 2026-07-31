@@ -10,7 +10,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.dtos.record.groups.GroupCreatedPayload;
 import com.example.campushub.dtos.record.groups.GroupDeletedPayload;
@@ -58,7 +57,6 @@ public class GroupService {
     private final ReportRepository reportRepository;
     private final Neo4jSyncEventRepository neo4jSyncEventRepository;
     private final ObjectMapper objectMapper;
-    private final FileUploadService fileUploadService;
     private final ApplicationEventPublisher eventPublisher;
 
     private String toJson(Object object) {
@@ -226,7 +224,7 @@ public class GroupService {
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
-    public GroupResponse updateGroupAvatar(User currentUser, String groupId, MultipartFile file) throws Exception {
+    public GroupResponse updateGroupAvatar(User currentUser, String groupId, String avatarUrl) throws Exception {
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
                 .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
@@ -240,7 +238,6 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
 
-        String avatarUrl = fileUploadService.uploadFile(file, "groups/avatars");
         group.setAvatarUrl(avatarUrl);
         group = groupRepository.save(group);
 
@@ -248,7 +245,7 @@ public class GroupService {
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
-    public GroupResponse updateGroupCover(User currentUser, String groupId, MultipartFile file) throws Exception {
+    public GroupResponse updateGroupCover(User currentUser, String groupId, String coverUrl) throws Exception {
         GroupMemberId currentUserId = new GroupMemberId(groupId, currentUser.getId());
         GroupMember currentUserMember = groupMemberRepository.findById(currentUserId)
                 .orElseThrow(() -> new ForbiddenException("Bạn không phải là thành viên của nhóm này"));
@@ -262,7 +259,6 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy nhóm"));
 
-        String coverUrl = fileUploadService.uploadFile(file, "groups/covers");
         group.setCoverUrl(coverUrl);
         group = groupRepository.save(group);
 

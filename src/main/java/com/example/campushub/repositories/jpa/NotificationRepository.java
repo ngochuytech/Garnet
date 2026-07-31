@@ -8,12 +8,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.models.jpa.Notification;
 
-@Repository
 public interface NotificationRepository extends JpaRepository<Notification, String>{
     Optional<Notification> findFirstByRecipientIdAndTargetIdAndTypeOrderByCreatedAtDesc(String recipientId, String targetId, NotificationType type);
 

@@ -4,12 +4,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.bind.annotation.RestController;
 
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
@@ -37,9 +35,9 @@ public class UserTopicController {
     @PutMapping("/image")
     public ResponseEntity<?> updateTopicImage(
             @AuthenticationPrincipal User user,
-            @RequestParam("topicName") String topicName,
-            @RequestParam("image") MultipartFile image) throws Exception {
-        topicService.updateTopicImage(user, topicName, image);
+            @RequestParam String topicName,
+            @RequestParam String imageUrl) throws Exception {
+        topicService.updateTopicImage(user, topicName, imageUrl);
         return ResponseEntity.ok().body(ApiResponse.ok("Cập nhật ảnh chủ đề thành công"));
     }
 }

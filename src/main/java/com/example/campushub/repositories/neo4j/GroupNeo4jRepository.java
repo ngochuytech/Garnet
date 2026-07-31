@@ -1,12 +1,11 @@
 package com.example.campushub.repositories.neo4j;
 
-import com.example.campushub.models.neo4j.GroupNode;
 import org.springframework.data.neo4j.repository.Neo4jRepository;
 import org.springframework.data.neo4j.repository.query.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
-@Repository
+import com.example.campushub.models.neo4j.GroupNode;
+
 public interface GroupNeo4jRepository extends Neo4jRepository<GroupNode, String> {
     @Query("MERGE (u:User {id: $userId}) " +
             "MERGE (g:Group {id: $groupId}) " +

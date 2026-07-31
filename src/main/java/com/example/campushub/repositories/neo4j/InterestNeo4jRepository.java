@@ -6,13 +6,11 @@ import java.util.Set;
 import org.springframework.data.neo4j.repository.Neo4jRepository;
 import org.springframework.data.neo4j.repository.query.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
 import com.example.campushub.dtos.record.TopicDistributionProjection;
 import com.example.campushub.models.neo4j.InterestNode;
 import com.example.campushub.responses.TopicResponse;
 
-@Repository
 public interface InterestNeo4jRepository extends Neo4jRepository<InterestNode, String> {
         long countByNameIn(Set<String> names);
 

@@ -7,12 +7,9 @@ import java.util.Set;
 import org.springframework.data.neo4j.repository.Neo4jRepository;
 import org.springframework.data.neo4j.repository.query.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
-import com.example.campushub.dtos.record.posts.PostTags;
 import com.example.campushub.models.neo4j.PostNode;
 
-@Repository
 public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
         @Query("MATCH (u:User {id: $userId}) " +
                         "MERGE (p:Post {id: $postId}) " +

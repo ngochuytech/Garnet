@@ -32,6 +32,7 @@ public class PostResponse {
     private String groupName;
     private SharedPostResponse sharedPost;
     private List<String> images;
+    private List<String> videos;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -61,6 +62,7 @@ public class PostResponse {
         private String groupId;
         private String groupName;
         private List<String> images;
+        private List<String> videos;
         private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
     }
@@ -107,6 +109,7 @@ public class PostResponse {
             .groupId(post.getGroup() != null ? post.getGroup().getId() : null)
             .groupName(groupName)
             .images(post.getImages())
+            .videos(post.getVideos())
             .sharedPost(sharedPost != null ? SharedPostResponse.builder()
                 .id(sharedPost.getId())
                 .content(post.getSharedPost().getStatus() == ContentStatus.ACTIVE ? post.getSharedPost().getContent() : "Nội dung này không còn khả dụng hoặc đã bị tác giả gỡ bỏ.")
@@ -120,6 +123,7 @@ public class PostResponse {
                     .authorAvatar(post.getSharedPost().getUser().getAvatarUrl())
                     .department(post.getSharedPost().getUser().getDepartment())
                     .build() : null)
+                .videos(post.getSharedPost().getVideos())
                 .createdAt(post.getSharedPost().getCreatedAt())
                 .updatedAt(post.getSharedPost().getUpdatedAt())
                 .build() : null

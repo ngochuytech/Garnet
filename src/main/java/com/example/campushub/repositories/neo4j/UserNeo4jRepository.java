@@ -5,14 +5,11 @@ import java.util.Set;
 
 import org.springframework.data.neo4j.repository.Neo4jRepository;
 import org.springframework.data.neo4j.repository.query.Query;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.repository.query.Param;
 
 import com.example.campushub.models.neo4j.UserNode;
 import com.example.campushub.responses.FollowStats;
 
-import org.springframework.data.repository.query.Param;
-
-@Repository
 public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
        @Query("MERGE (u:User {id: $userId}) " +
                      "WITH u, $majorName AS majorName, " +

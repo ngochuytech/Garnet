@@ -18,7 +18,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
 import com.example.campushub.dtos.record.posts.PostCreatedPayload;
 import com.example.campushub.dtos.record.posts.PostSharedPayload;
@@ -83,7 +82,6 @@ public class PostService {
     private final PostReactionRepository postReactionRepository;
     private final CommentRepository commentRepository;
     private final Neo4jSyncEventRepository neo4jSyncEventRepository;
-    private final FileUploadService fileUploadService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
@@ -107,7 +105,7 @@ public class PostService {
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
-    public void createPost(User user, CreatePostDTO dto, List<MultipartFile> images) throws Exception {
+    public void createPost(User user, CreatePostDTO dto) throws Exception {
         long existingTagsCount = tagNeo4jRepository.countByNameIn(dto.getTags());
         if (existingTagsCount != dto.getTags().size()) {
             throw new ResourceNotFoundException("Một hoặc nhiều chủ đề không tồn tại");
@@ -134,9 +132,11 @@ public class PostService {
                 .group(groupNode)
                 .build();
 
-        if (images != null && !images.isEmpty()) {
-            List<String> imageUrls = fileUploadService.uploadFiles(images, "posts");
-            post.setImages(imageUrls);
+        if (dto.getImageUrls() != null && !dto.getImageUrls().isEmpty()) {
+            post.setImages(dto.getImageUrls());
+        }
+        if (dto.getVideoUrls() != null && !dto.getVideoUrls().isEmpty()) {
+            post.setVideos(dto.getVideoUrls());
         }
 
         postRepository.save(post);

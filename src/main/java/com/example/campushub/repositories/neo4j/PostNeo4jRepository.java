@@ -14,9 +14,10 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
         @Query("MATCH (u:User {id: $userId}) " +
                         "MERGE (p:Post {id: $postId}) " +
                         "ON CREATE SET p.status = 'ACTIVE', p.createdAt = $createdAt " +
-                        "MERGE (u)-[:POSTED]->(p) " +
+                        "MERGE (u)-[posted:POSTED]->(p) " +
+                        "ON CREATE SET posted.createdAt = $createdAt " +
                         "WITH p " +
-                        "MATCH (t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) WHERE t.name IN $tagNames " +
+                        "MATCH (t:Interest) WHERE t.name IN $tagNames " +
                         "MERGE (p)-[:HAS_TAG]->(t)")
         void createPost(@Param("userId") String userId,
                         @Param("postId") String postId,
@@ -27,16 +28,45 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         "MERGE (p)-[:POSTED_IN]->(g)")
         void linkPostToGroup(@Param("postId") String postId, @Param("groupId") String groupId);
 
+        @Query("MATCH (u:User {id: $userId}), (p:Post {id: $postId}) " +
+                        "MERGE (u)-[r:LIKED]->(p) " +
+                        "ON CREATE SET r.createdAt = $createdAt " +
+                        "RETURN count(r)")
+        long createLikedRelation(
+                        @Param("userId") String userId,
+                        @Param("postId") String postId,
+                        @Param("createdAt") LocalDateTime createdAt);
+
+        @Query("MATCH (:User {id: $userId})-[r:LIKED]->(:Post {id: $postId}) " +
+                        "DELETE r")
+        void deleteLikedRelation(@Param("userId") String userId, @Param("postId") String postId);
+
+        @Query("MATCH (u:User {id: $userId}), (p:Post {id: $postId}) " +
+                        "MERGE (u)-[r:COMMENTED]->(p) " +
+                        "ON CREATE SET r.createdAt = $createdAt " +
+                        "RETURN count(r)")
+        long createCommentedRelation(
+                        @Param("userId") String userId,
+                        @Param("postId") String postId,
+                        @Param("createdAt") LocalDateTime createdAt);
+
+        @Query("MATCH (:User {id: $userId})-[r:COMMENTED]->(:Post {id: $postId}) " +
+                        "DELETE r")
+        void deleteCommentedRelation(@Param("userId") String userId, @Param("postId") String postId);
+
         @Query("MATCH (p:Post {id: $postId}) DETACH DELETE p")
         void deletePostById(@Param("postId") String postId);
 
         @Query("MATCH (u:User {id: $userId}), (originalP:Post {id: $originalPostId}) " +
                         "MERGE (sharedP:Post {id: $sharedPostId}) " +
                         "ON CREATE SET sharedP.status = 'ACTIVE', sharedP.createdAt = $createdAt " +
-                        "MERGE (u)-[:POSTED]->(sharedP) " +
+                        "MERGE (u)-[posted:POSTED]->(sharedP) " +
+                        "ON CREATE SET posted.createdAt = $createdAt " +
                         "MERGE (sharedP)-[:QUOTES]->(originalP) " +
+                        "MERGE (u)-[shared:SHARED]->(originalP) " +
+                        "ON CREATE SET shared.createdAt = $createdAt " +
                         "WITH sharedP " +
-                        "MATCH (t:Interest)-[:SPECIFIC_OF]->(:Category {name: 'Sở thích'}) WHERE t.name IN $tagNames " +
+                        "MATCH (t:Interest) WHERE t.name IN $tagNames " +
                         "MERGE (sharedP)-[:HAS_TAG]->(t) " +
                         "RETURN count(DISTINCT sharedP)")
         long createSharedPost(
@@ -51,7 +81,8 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         "RETURN count(p)")
         long updatePostStatus(String postId, String status);
 
-        @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'}) " +
+        @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'})<-[:POSTED]-(author:User) " +
+                        "WHERE coalesce(author.status, 'ACTIVE') = 'ACTIVE' " +
                         "WITH DISTINCT p " +
                         "ORDER BY p.createdAt DESC, p.id DESC " +
                         "RETURN p.id AS id, p.createdAt AS createdAt " +
@@ -60,9 +91,10 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         @Param("tagName") String tagName,
                         @Param("limitPlusOne") int limitPlusOne);
 
-        @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'}) " +
-                        "WHERE p.createdAt < $cursorCreatedAt " +
-                        "OR (p.createdAt = $cursorCreatedAt AND p.id < $cursorPostId) " +
+        @Query("MATCH (t:Interest {name: $tagName})<-[:HAS_TAG]-(p:Post {status: 'ACTIVE'})<-[:POSTED]-(author:User) " +
+                        "WHERE (p.createdAt < $cursorCreatedAt " +
+                        "OR (p.createdAt = $cursorCreatedAt AND p.id < $cursorPostId)) " +
+                        "AND coalesce(author.status, 'ACTIVE') = 'ACTIVE' " +
                         "WITH DISTINCT p " +
                         "ORDER BY p.createdAt DESC, p.id DESC " +
                         "RETURN p.id AS id, p.createdAt AS createdAt " +
@@ -74,9 +106,10 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         @Param("limitPlusOne") int limitPlusOne);
 
         @Query("MATCH (me:User {id: $userId}) " +
-                        "MATCH (p:Post {status: 'ACTIVE'}) " +
-                        "WHERE (me)-[:INTERESTED_IN]->(:Interest)<-[:HAS_TAG]-(p) " +
-                        "OR (me)-[:FOLLOWS]->(:User)-[:POSTED]->(p) " +
+                        "MATCH (author:User)-[:POSTED]->(p:Post {status: 'ACTIVE'}) " +
+                        "WHERE ((me)-[:INTERESTED_IN]->(:Interest)<-[:HAS_TAG]-(p) " +
+                        "OR (me)-[:FOLLOWS]->(author)) " +
+                        "AND coalesce(author.status, 'ACTIVE') = 'ACTIVE' " +
                         "WITH DISTINCT p " +
                         "ORDER BY p.createdAt DESC, p.id DESC " +
                         "RETURN p.id AS id, p.createdAt AS createdAt " +
@@ -86,9 +119,10 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         @Param("limitPlusOne") int limitPlusOne);
 
         @Query("MATCH (me:User {id: $userId}) " +
-                        "MATCH (p:Post {status: 'ACTIVE'}) " +
+                        "MATCH (author:User)-[:POSTED]->(p:Post {status: 'ACTIVE'}) " +
                         "WHERE ((me)-[:INTERESTED_IN]->(:Interest)<-[:HAS_TAG]-(p) " +
-                        "OR (me)-[:FOLLOWS]->(:User)-[:POSTED]->(p)) " +
+                        "OR (me)-[:FOLLOWS]->(author)) " +
+                        "AND coalesce(author.status, 'ACTIVE') = 'ACTIVE' " +
                         "AND (p.createdAt < $cursorCreatedAt " +
                         "OR (p.createdAt = $cursorCreatedAt AND p.id < $cursorPostId)) " +
                         "WITH DISTINCT p " +

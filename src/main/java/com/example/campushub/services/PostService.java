@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.dtos.record.posts.PostCreatedPayload;
+import com.example.campushub.dtos.record.posts.PostReactionChangedPayload;
 import com.example.campushub.dtos.record.posts.PostSharedPayload;
 import com.example.campushub.dtos.record.posts.PostStats;
 import com.example.campushub.dtos.record.posts.PostStatusChangedPayload;
@@ -186,6 +187,8 @@ public class PostService {
             postReactionRepository.delete(reaction);
         }
 
+        queuePostReactionChangedEvent(user.getId(), post.getId(), LocalDateTime.now());
+
         if (!user.getId().equals(post.getUser().getId()) && isNewLike) {
             NotificationEvent event = NotificationEvent.builder()
                     .recipientId(post.getUser().getId())
@@ -219,6 +222,16 @@ public class PostService {
         } else {
             postReactionRepository.delete(reaction);
         }
+
+        queuePostReactionChangedEvent(user.getId(), post.getId(), LocalDateTime.now());
+    }
+
+    private void queuePostReactionChangedEvent(String userId, String postId, LocalDateTime createdAt) {
+        PostReactionChangedPayload payload = new PostReactionChangedPayload(userId, postId, createdAt);
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.POST_REACTION_CHANGED,
+                postId,
+                toJson(payload)));
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)

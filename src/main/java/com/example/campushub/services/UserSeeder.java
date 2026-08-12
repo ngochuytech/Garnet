@@ -93,7 +93,8 @@ public class UserSeeder {
             UserProfileUpdatedPayload payload = new UserProfileUpdatedPayload(
                     user.getId(),
                     randomDept,
-                    Set.copyOf(randomPicksTag));
+                    Set.copyOf(randomPicksTag),
+                    user.getStatus());
 
             neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
                     Neo4jEventType.USER_PROFILE_UPDATED,

@@ -14,6 +14,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import com.example.campushub.dtos.record.posts.PostCreatedPayload;
+import com.example.campushub.dtos.record.posts.PostReactionChangedPayload;
 import com.example.campushub.enums.GroupStatus;
 import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.enums.Neo4jEventType;
@@ -126,8 +127,6 @@ public class PostSeeder {
                     .toList();
             postTagRepository.saveAll(postTagsMain);
 
-            seedPostReactions(post, users, limitedMaxReactions);
-
             PostCreatedPayload payload = new PostCreatedPayload(
                     savedPost.getId(),
                     author.getId(),
@@ -139,6 +138,8 @@ public class PostSeeder {
                     Neo4jEventType.POST_CREATED,
                     savedPost.getId(),
                     toJson(payload)));
+
+            seedPostReactions(savedPost, postTags, users, limitedMaxReactions);
             successCount++;
         }
         return successCount;
@@ -158,12 +159,18 @@ public class PostSeeder {
                 .collect(Collectors.toList());
     }
 
-    private void seedPostReactions(Post post, List<User> users, int maxReactions) {
+    private void seedPostReactions(Post post, Set<String> postTags, List<User> users, int maxReactions) {
         if (maxReactions == 0 || users.isEmpty()) {
             return;
         }
 
-        List<User> candidates = new ArrayList<>(users);
+        List<User> candidates = users.stream()
+                .filter(user -> hasInterestInPostTags(user, postTags))
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (candidates.isEmpty()) {
+            return;
+        }
+
         Collections.shuffle(candidates);
         int reactionCount = ThreadLocalRandom.current().nextInt(0, Math.min(maxReactions, candidates.size()) + 1);
         if (reactionCount == 0) {
@@ -184,6 +191,27 @@ public class PostSeeder {
         }
 
         postReactionRepository.saveAll(reactions);
+
+        List<Neo4jSyncEvent> reactionEvents = new ArrayList<>();
+        for (PostReaction reaction : reactions) {
+            if (reaction.getType() != ReactionType.LIKE) {
+            continue;
+            }
+            PostReactionChangedPayload payload = new PostReactionChangedPayload(
+                reaction.getUser().getId(),
+                post.getId(),
+                reaction.getCreatedAt());
+            reactionEvents.add(Neo4jSyncEvent.pending(
+                Neo4jEventType.POST_REACTION_CHANGED,
+                post.getId(),
+                toJson(payload)));
+        }
+        neo4jSyncEventRepository.saveAll(reactionEvents);
+    }
+
+    private boolean hasInterestInPostTags(User user, Set<String> postTags) {
+        return userInterestRepository.findInterestNamesByUserId(user.getId()).stream()
+                .anyMatch(postTags::contains);
     }
 
     private Group pickRandomApprovedGroup(User author) {

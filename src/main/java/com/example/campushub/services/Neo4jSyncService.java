@@ -1,6 +1,7 @@
 package com.example.campushub.services;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -10,16 +11,27 @@ import com.example.campushub.dtos.record.groups.GroupDeletedPayload;
 import com.example.campushub.dtos.record.groups.GroupMemberApprovedPayload;
 import com.example.campushub.dtos.record.groups.GroupMemberRemovedPayload;
 import com.example.campushub.dtos.record.groups.GroupNameUpdatedPayload;
+import com.example.campushub.dtos.record.posts.PostCommentChangedPayload;
 import com.example.campushub.dtos.record.posts.PostCreatedPayload;
+import com.example.campushub.dtos.record.posts.PostReactionChangedPayload;
 import com.example.campushub.dtos.record.posts.PostStatusChangedPayload;
 import com.example.campushub.dtos.record.posts.PostSharedPayload;
 import com.example.campushub.dtos.record.profiles.UserProfileUpdatedPayload;
 import com.example.campushub.dtos.record.users.UserFollowPayload;
+import com.example.campushub.dtos.record.users.UserStatusChangedPayload;
+import com.example.campushub.enums.ContentStatus;
 import com.example.campushub.enums.Neo4jEventStatus;
+import com.example.campushub.enums.ReactionType;
+import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.Neo4jSyncEvent;
+import com.example.campushub.models.jpa.PostReaction;
+import com.example.campushub.models.jpa.PostReactionId;
+import com.example.campushub.models.jpa.UserFollow;
 import com.example.campushub.models.jpa.UserFollowId;
 import com.example.campushub.models.neo4j.GroupNode;
+import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
+import com.example.campushub.repositories.jpa.PostReactionRepository;
 import com.example.campushub.repositories.jpa.UserFollowRepository;
 import com.example.campushub.repositories.neo4j.GroupNeo4jRepository;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
@@ -36,6 +48,8 @@ public class Neo4jSyncService {
     private final GroupNeo4jRepository groupNeo4jRepository;
     private final UserNeo4jRepository userNeo4jRepository;
     private final UserFollowRepository userFollowRepository;
+    private final PostReactionRepository postReactionRepository;
+    private final CommentRepository commentRepository;
     private final ObjectMapper objectMapper;
 
     @Transactional(value = "transactionManager")
@@ -45,12 +59,15 @@ public class Neo4jSyncService {
                 case "POST_CREATED" -> syncPostCreated(event);
                 case "POST_SHARED" -> syncPostShared(event);
                 case "POST_STATUS_CHANGED" -> syncPostStatusChanged(event);
+                case "POST_REACTION_CHANGED" -> syncPostReactionChanged(event);
+                case "POST_COMMENT_CHANGED" -> syncPostCommentChanged(event);
                 case "GROUP_CREATED" -> syncGroupCreated(event);
                 case "GROUP_MEMBER_APPROVED" -> syncGroupMemberApproved(event);
                 case "GROUP_MEMBER_REMOVED" -> syncGroupMemberRemovd(event);
                 case "GROUP_DELETED" -> syncGroupDeleted(event);
                 case "GROUP_NAME_UPDATED" -> syncGroupNameUpdated(event);
                 case "USER_PROFILE_UPDATED" -> syncUserProfileUpdated(event);
+                case "USER_STATUS_CHANGED" -> syncUserStatusChanged(event);
                 case "USER_FOLLOWED" -> syncUserFollowed(event);
                 case "USER_UNFOLLOWED" -> syncUserUnfollowed(event);
                 default -> throw new IllegalArgumentException(
@@ -177,7 +194,20 @@ public class Neo4jSyncService {
                 event.getPayload(),
                 UserProfileUpdatedPayload.class);
 
-        userNeo4jRepository.replaceUserProfileGraph(payload.userId(), payload.major(), payload.hobbies());
+        userNeo4jRepository.replaceUserProfileGraph(
+                payload.userId(),
+                payload.major(),
+                payload.hobbies(),
+                payload.status() != null ? payload.status().name() : null);
+    }
+
+    private void syncUserStatusChanged(Neo4jSyncEvent event) {
+        UserStatusChangedPayload payload = objectMapper.readValue(event.getPayload(), UserStatusChangedPayload.class);
+        long updatedCount = userNeo4jRepository.updateUserStatus(payload.userId(), payload.status().name());
+
+        if (updatedCount != 1) {
+            throw new IllegalStateException("Neo4j did not update the user status");
+        }
     }
 
     private void syncUserFollowed(Neo4jSyncEvent event) {
@@ -185,13 +215,14 @@ public class Neo4jSyncService {
                 event.getPayload(),
                 UserFollowPayload.class);
 
-        boolean isStillFollowing = userFollowRepository.existsById(
-                new UserFollowId(payload.followerId(), payload.targetId()));
+        UserFollow follow = userFollowRepository.findById(
+                new UserFollowId(payload.followerId(), payload.targetId())).orElse(null);
 
-        if (!isStillFollowing) {
+        if (follow == null) {
             return;
         }
-        boolean success = userNeo4jRepository.followUser(payload.followerId(), payload.targetId());
+        LocalDateTime createdAt = payload.createdAt() != null ? payload.createdAt() : follow.getCreatedAt();
+        boolean success = userNeo4jRepository.followUser(payload.followerId(), payload.targetId(), createdAt);
         if (!success) {
             throw new IllegalStateException("Neo4j did not create follow relation");
         }
@@ -201,5 +232,49 @@ public class Neo4jSyncService {
         UserFollowPayload payload = objectMapper.readValue(event.getPayload(), UserFollowPayload.class);
 
         userNeo4jRepository.unfollowUser(payload.followerId(), payload.targetId());
+    }
+
+    private void syncPostReactionChanged(Neo4jSyncEvent event) {
+        PostReactionChangedPayload payload = objectMapper.readValue(event.getPayload(), PostReactionChangedPayload.class);
+
+        PostReaction postReaction = postReactionRepository.findById(new PostReactionId(payload.postId(), payload.userId()))
+                .orElse(null);
+
+        if (postReaction != null && postReaction.getType() == ReactionType.LIKE) {
+            LocalDateTime createdAt = payload.createdAt() != null
+                    ? payload.createdAt()
+                    : postReaction.getCreatedAt();
+            long createdRelationCount = postNeo4jRepository.createLikedRelation(
+                    payload.userId(), payload.postId(), createdAt);
+            if (createdRelationCount != 1) {
+                throw new IllegalStateException("Neo4j did not create the liked relation");
+            }
+        } else {
+            postNeo4jRepository.deleteLikedRelation(payload.userId(), payload.postId());
+        }
+    }
+
+    private void syncPostCommentChanged(Neo4jSyncEvent event) {
+        PostCommentChangedPayload payload = objectMapper.readValue(event.getPayload(), PostCommentChangedPayload.class);
+        Comment comment = commentRepository.findById(payload.commentId()).orElse(null);
+
+        if (comment == null) {
+            return;
+        }
+
+        String userId = comment.getUser().getId();
+        String postId = comment.getPost().getId();
+        Optional<Comment> firstActiveComment = commentRepository
+                .findFirstByUser_IdAndPost_IdAndStatusOrderByCreatedAtAsc(userId, postId, ContentStatus.ACTIVE);
+
+        if (firstActiveComment.isPresent()) {
+            long createdRelationCount = postNeo4jRepository.createCommentedRelation(
+                    userId, postId, firstActiveComment.get().getCreatedAt());
+            if (createdRelationCount != 1) {
+                throw new IllegalStateException("Neo4j did not create the commented relation");
+            }
+        } else {
+            postNeo4jRepository.deleteCommentedRelation(userId, postId);
+        }
     }
 }

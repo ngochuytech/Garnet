@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -19,6 +20,7 @@ import com.example.campushub.responses.admin.AdminUserResponse;
 import com.example.campushub.services.CommentService;
 import com.example.campushub.services.PostService;
 import com.example.campushub.services.ReportService;
+import com.example.campushub.services.UserCreatedAtNeo4jSyncService;
 import com.example.campushub.services.UserService;
 
 import lombok.RequiredArgsConstructor;
@@ -31,6 +33,7 @@ public class AdminUserController {
     private final PostService postService;
     private final CommentService commentService;
     private final ReportService reportService;
+    private final UserCreatedAtNeo4jSyncService userCreatedAtNeo4jSyncService;
 
     @GetMapping("")
     public ResponseEntity<?> getUsers(@AuthenticationPrincipal User currentUser,
@@ -94,6 +97,11 @@ public class AdminUserController {
                 : Sort.by(sortBy).ascending();
         Pageable pageable = PageRequest.of(page, size, sort);
         return ResponseEntity.ok(ApiResponse.ok(PagedResponse.from(reportService.getReportsByUserId(userId, pageable))));
+    }
+
+    @PostMapping("/sync-created-at-to-neo4j")
+    public ResponseEntity<?> syncCreatedAtToNeo4j() {
+        return ResponseEntity.ok(ApiResponse.ok(userCreatedAtNeo4jSyncService.syncCreatedAtToNeo4j()));
     }
 
     @PutMapping("/{userId}/ban")

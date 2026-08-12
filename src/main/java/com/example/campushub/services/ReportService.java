@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.dtos.admin.AdminGroupReportDTO;
 import com.example.campushub.dtos.admin.AdminReportDTO;
+import com.example.campushub.dtos.record.posts.PostCommentChangedPayload;
 import com.example.campushub.dtos.record.posts.PostStatusChangedPayload;
 import com.example.campushub.dtos.users.CreateReportCommentDTO;
 import com.example.campushub.dtos.users.CreateReportGroupDTO;
@@ -423,6 +424,12 @@ public class ReportService {
 
         comment.setStatus(ContentStatus.HIDDEN);
         commentRepository.save(comment);
+
+        PostCommentChangedPayload payload = new PostCommentChangedPayload(comment.getId());
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.POST_COMMENT_CHANGED,
+                comment.getId(),
+                toJson(payload)));
     }
 
     private ReportResponse toReportResponse(Report report) {

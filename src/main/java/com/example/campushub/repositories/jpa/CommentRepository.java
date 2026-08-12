@@ -21,6 +21,9 @@ import com.example.campushub.repositories.jpa.projections.PostCountProjection;
 public interface CommentRepository extends JpaRepository<Comment, String> {
     Page<Comment> findByUser(User user, Pageable pageable);
 
+    Optional<Comment> findFirstByUser_IdAndPost_IdAndStatusOrderByCreatedAtAsc(
+            String userId, String postId, ContentStatus status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT c FROM Comment c WHERE c.id = :commentId")
     Optional<Comment> findByIdForUpdate(@Param("commentId") String commentId);

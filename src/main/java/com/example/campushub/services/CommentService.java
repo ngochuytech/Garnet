@@ -13,7 +13,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.context.ApplicationEventPublisher;
 
+import com.example.campushub.dtos.record.posts.PostCommentChangedPayload;
 import com.example.campushub.enums.ContentStatus;
+import com.example.campushub.enums.Neo4jEventType;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReactionType;
 import com.example.campushub.events.NotificationEvent;
@@ -21,24 +23,37 @@ import com.example.campushub.exceptions.ResourceNotFoundException;
 import com.example.campushub.models.jpa.Comment;
 import com.example.campushub.models.jpa.CommentReaction;
 import com.example.campushub.models.jpa.CommentReactionId;
+import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.CommentReactionRepository;
 import com.example.campushub.repositories.jpa.CommentRepository;
+import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.jpa.projections.CommentReplyCountProjection;
 import com.example.campushub.responses.admin.AdminCommentResponse;
 
 import lombok.RequiredArgsConstructor;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
 public class CommentService {
+    private final Neo4jSyncEventRepository neo4jSyncEventRepository;
     private final CommentRepository commentRepository;
     private final CommentReactionRepository commentReactionRepository;
     private final PostService postService;
     private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
+
+    private String toJson(Object object) {
+        try {
+            return objectMapper.writeValueAsString(object);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to convert object to JSON", e);
+        }
+    }
 
     public Slice<Comment> getCommentsByPostId(String postId, String lastCommentId, int limit) throws Exception {
         List<Comment> comments;
@@ -53,8 +68,9 @@ public class CommentService {
             // Các lần load tiếp theo
             Comment lastComment = commentRepository.findById(lastCommentId)
                     .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay comment cuoi cung"));
-            comments = commentRepository.findByPostIdAndParentCommentIsNullAndStatusAndCreatedAtLessThanOrderByCreatedAtDesc(
-                    postId, ContentStatus.ACTIVE, lastComment.getCreatedAt(), fetchPageable);
+            comments = commentRepository
+                    .findByPostIdAndParentCommentIsNullAndStatusAndCreatedAtLessThanOrderByCreatedAtDesc(
+                            postId, ContentStatus.ACTIVE, lastComment.getCreatedAt(), fetchPageable);
         }
 
         boolean hasNext = comments.size() > limit;
@@ -65,14 +81,14 @@ public class CommentService {
         return new SliceImpl<>(comments, PageRequest.of(0, limit), hasNext);
     }
 
-    public List<Comment> getCommentReplies(String commentId, String lastCommentId, Integer limit) throws Exception{
+    public List<Comment> getCommentReplies(String commentId, String lastCommentId, Integer limit) throws Exception {
         List<Comment> replies;
-        if(lastCommentId == null){
+        if (lastCommentId == null) {
             replies = commentRepository.findByParentComment_IdAndStatusOrderByCreatedAtAsc(
-                    commentId, ContentStatus.ACTIVE, PageRequest.of(0 , limit));
+                    commentId, ContentStatus.ACTIVE, PageRequest.of(0, limit));
         } else {
             Comment lastComment = commentRepository.findById(lastCommentId)
-                .orElseThrow(() -> new ResourceNotFoundException("Bình luận không tồn tại"));
+                    .orElseThrow(() -> new ResourceNotFoundException("Bình luận không tồn tại"));
             replies = commentRepository.findByParentComment_IdAndStatusAndCreatedAtGreaterThanOrderByCreatedAtAsc(
                     commentId, ContentStatus.ACTIVE, lastComment.getCreatedAt(), PageRequest.of(0, limit));
         }
@@ -99,8 +115,8 @@ public class CommentService {
         List<String> commentIds = comments.stream()
                 .map(Comment::getId)
                 .toList();
-        List<CommentReplyCountProjection> counts =
-                commentRepository.countRepliesByCommentIdsAndStatus(commentIds, ContentStatus.ACTIVE);
+        List<CommentReplyCountProjection> counts = commentRepository.countRepliesByCommentIdsAndStatus(commentIds,
+                ContentStatus.ACTIVE);
         for (CommentReplyCountProjection count : counts) {
             replyCounts.put(count.getCommentId(), count.getCount().intValue());
         }
@@ -145,6 +161,12 @@ public class CommentService {
             targetId = post.getId();
         }
         commentRepository.save(comment);
+
+        PostCommentChangedPayload payload = new PostCommentChangedPayload(comment.getId());
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+            Neo4jEventType.POST_COMMENT_CHANGED, 
+            comment.getId(), 
+            toJson(payload)));
 
         if (recipientId != null && !user.getId().equals(recipientId)) {
             NotificationEvent event = NotificationEvent.builder()

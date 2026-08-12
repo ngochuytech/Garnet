@@ -1,5 +1,6 @@
 package com.example.campushub.services;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -11,11 +12,16 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.SliceImpl;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -32,15 +38,19 @@ import com.example.campushub.exceptions.BadRequestException;
 import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.Notification;
 import com.example.campushub.models.jpa.User;
+import com.example.campushub.models.jpa.UserBlock;
+import com.example.campushub.models.jpa.UserBlockId;
 import com.example.campushub.models.jpa.UserFollow;
 import com.example.campushub.models.jpa.UserFollowId;
 import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
 import com.example.campushub.repositories.jpa.NotificationRepository;
+import com.example.campushub.repositories.jpa.UserBlockRepository;
 import com.example.campushub.repositories.jpa.UserFollowRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.UserNeo4jRepository;
 import com.example.campushub.responses.FollowResponse;
 import com.example.campushub.responses.FollowStats;
+import com.example.campushub.responses.FriendSuggestionPageResponse;
 import com.example.campushub.responses.profiles.AnotherUserResponse;
 
 import lombok.RequiredArgsConstructor;
@@ -54,11 +64,15 @@ public class FollowService {
 
     private final UserNeo4jRepository userNeo4jRepository;
     private final UserRepository userRepository;
+    private final UserBlockRepository userBlockRepository;
     private final UserFollowRepository userFollowRepository;
     private final NotificationRepository notificationRepository;
     private final Neo4jSyncEventRepository neo4jSyncEventRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
+
+    @Value("${ai.api-key}" )
+    private String aiApiKey;
 
     private String toJson(Object object) {
         try {
@@ -82,21 +96,27 @@ public class FollowService {
             throw new BadRequestException("Khong thể theo dõi người dùng chưa kích hoạt hoặc đã bị vô hiệu hóa");
         }
 
+        if (userBlockRepository.countBlocksBetween(currentUserId, targetUserId) > 0) {
+            throw new BadRequestException("Không thể follow người dùng này");
+        }
+
         UserFollowId followId = new UserFollowId(currentUserId, targetUserId);
         if (userFollowRepository.existsById(followId)) {
             throw new BadRequestException("Bạn đã theo dõi người dùng này");
         }
 
+        LocalDateTime followedAt = LocalDateTime.now();
         userFollowRepository.save(UserFollow.builder()
             .id(followId)
             .follower(currentUser)
             .target(targetUser)
+            .createdAt(followedAt)
             .build());
 
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
             Neo4jEventType.USER_FOLLOWED, 
             currentUserId + ":" + targetUserId, 
-            toJson(new UserFollowPayload(currentUserId, targetUserId))));
+            toJson(new UserFollowPayload(currentUserId, targetUserId, followedAt))));
 
         if (currentUser != null) {
             NotificationEvent event = NotificationEvent.builder()
@@ -127,7 +147,7 @@ public class FollowService {
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
                 Neo4jEventType.USER_UNFOLLOWED,
                 currentUserId + ":" + targetUserId,
-                toJson(new UserFollowPayload(currentUserId, targetUserId))
+                toJson(new UserFollowPayload(currentUserId, targetUserId, LocalDateTime.now()))
         ));
 
         Optional<Notification> oldOptional = notificationRepository
@@ -137,69 +157,120 @@ public class FollowService {
         }
     }
 
-    public List<FollowResponse> getWhoToFollow(String userId) {
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
+    public void blockUser(String currentUserId, String targetUserId) throws Exception {
+        if (currentUserId.equals(targetUserId)) {
+            throw new BadRequestException("Cannot block yourself");
+        }
+
+        User currentUser = userRepository.findById(currentUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("Current user does not exist"));
+        User targetUser = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("Target user does not exist"));
+
+        UserBlockId blockId = new UserBlockId(currentUserId, targetUserId);
+        if (!userBlockRepository.existsById(blockId)) {
+            userBlockRepository.save(UserBlock.builder()
+                    .id(blockId)
+                    .blocker(currentUser)
+                    .blocked(targetUser)
+                    .build());
+        }
+
+        removeFollowForBlock(currentUserId, targetUserId);
+        removeFollowForBlock(targetUserId, currentUserId);
+    }
+
+    @Transactional("transactionManager")
+    public void unblockUser(String currentUserId, String targetUserId) throws Exception {
+        if (currentUserId.equals(targetUserId)) {
+            throw new BadRequestException("Cannot unblock yourself");
+        }
+        if (!userRepository.existsById(targetUserId)) {
+            throw new ResourceNotFoundException("Target user does not exist");
+        }
+
+        userBlockRepository.deleteById(new UserBlockId(currentUserId, targetUserId));
+    }
+
+    public FriendSuggestionPageResponse getWhoToFollow(String userId, String cursor) {
         List<String> suggestedIds = java.util.Collections.emptyList();
         List<String> followedIds = userNeo4jRepository.findAllFollowingIds(userId);
-        Map<String, AiRecommendationResponse.Recommendation> aiRecMap = new HashMap<>();
+        Set<String> blockedUserIds = userBlockRepository.findBlockedCounterpartIds(userId);
+        // List chứa candidate từ AI recommendation
+        Map<String, AiRecommendationResponse.Candidates> aiRecMap = new HashMap<>();
+        AiRecommendationResponse aiResponse = null;
+        // Danh sách trả về cho React
+        List<FollowResponse> items = new ArrayList<>();
 
         try {
             RestTemplate restTemplate = new RestTemplate();
             UriComponentsBuilder uriBuilder = UriComponentsBuilder
-                    .fromUriString("http://localhost:8000/recommend/{userId}")
-                    .queryParam("top_k", WHO_TO_FOLLOW_CANDIDATE_LIMIT)
-                    .queryParam("exclude", "all");
-
-            if (followedIds != null && !followedIds.isEmpty()) {
-                uriBuilder.queryParam("exclude_user_ids", String.join(",", followedIds));
+                    .fromUriString("http://localhost:8001/internal/v1/friend-suggestions/{sourceUserId}")
+                    .queryParam("limit", WHO_TO_FOLLOW_LIMIT);
+            
+            if(cursor != null && !cursor.isBlank()) {
+                uriBuilder.queryParam("cursor", cursor);
             }
 
-            String aiUrl = uriBuilder.buildAndExpand(userId).toUriString();
-            AiRecommendationResponse aiResponse = restTemplate.getForObject(aiUrl, AiRecommendationResponse.class);
-            if (aiResponse != null && "success".equals(aiResponse.getStatus())
-                    && aiResponse.getRecommendations() != null) {
-                suggestedIds = aiResponse.getRecommendations().stream()
-                        .map(AiRecommendationResponse.Recommendation::getUserId)
-                        .filter(Objects::nonNull)
-                        .filter(id -> !id.isBlank())
-                        .distinct()
-                        .toList();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-AI-Service-Key", aiApiKey);
+            HttpEntity<Void> requestEntity = new HttpEntity<>(headers);
 
-                for (AiRecommendationResponse.Recommendation rec : aiResponse.getRecommendations()) {
-                    String recommendationUserId = rec.getUserId();
-                    if (recommendationUserId != null && !recommendationUserId.isBlank()) {
-                        aiRecMap.put(recommendationUserId, rec);
-                    }
-                }
+            ResponseEntity<AiRecommendationResponse> responseEntity = restTemplate.exchange(
+                    uriBuilder.buildAndExpand(userId).toUri(),
+                    HttpMethod.GET,
+                    requestEntity,
+                    AiRecommendationResponse.class
+            );
+            aiResponse = responseEntity.getBody();
 
+            if (aiResponse == null || aiResponse.getCandidates() == null) {
+                throw new RuntimeException("AI response is null or candidates are null");
             }
+            suggestedIds = aiResponse.getCandidates().stream()
+                    .map(AiRecommendationResponse.Candidates::getCandidateUserId)
+                    .filter(Objects::nonNull)
+                    .filter(id -> !id.isBlank())
+                    .distinct()
+                    .toList();
+            for(AiRecommendationResponse.Candidates candidate : aiResponse.getCandidates()) {
+                aiRecMap.put(candidate.getCandidateUserId(), candidate);
+            }
+            
         } catch (Exception e) {
+            System.err.println("Error fetching AI recommendations: " + e.getMessage()); 
             suggestedIds = userNeo4jRepository.getSuggestedUserByHooby(userId, WHO_TO_FOLLOW_CANDIDATE_LIMIT);
         }
 
-        List<User> eligibleUsers = findEligibleSuggestionUsers(suggestedIds, userId, followedIds);
+        // Lọc list candidate phù hợp
+        List<User> eligibleUsers = findEligibleSuggestionUsers(suggestedIds, userId, followedIds, blockedUserIds);
         if (eligibleUsers.size() < WHO_TO_FOLLOW_LIMIT) {
             List<String> fallbackIds = userNeo4jRepository.getRandomSuggestedUser(
                     userId, WHO_TO_FOLLOW_CANDIDATE_LIMIT);
             eligibleUsers = findEligibleSuggestionUsers(
-                    mergeSuggestionIds(suggestedIds, fallbackIds), userId, followedIds);
+                    mergeSuggestionIds(suggestedIds, fallbackIds), userId, followedIds, blockedUserIds);
         }
 
-        return eligibleUsers.stream()
-                .map(user -> {
-                    FollowResponse.FollowResponseBuilder builder = FollowResponse.builder()
-                            .id(user.getId())
-                            .fullName(user.getFullName())
-                            .avatarUrl(user.getAvatarUrl())
-                            .department(user.getDepartment());
+        for (User user : eligibleUsers) {
+            AiRecommendationResponse.Candidates rec = aiRecMap.get(user.getId());
+            FollowResponse.FollowResponseBuilder builder = FollowResponse.builder()
+                    .id(user.getId())
+                    .fullName(user.getFullName())
+                    .avatarUrl(user.getAvatarUrl())
+                    .department(user.getDepartment());
 
-                    AiRecommendationResponse.Recommendation rec = aiRecMap.get(user.getId());
-                    if (rec != null) {
-                        builder.commonInterests(rec.getCommonInterests())
-                                .reason(buildSuggestionReasons(rec));
-                    }
-                    return builder.build();
-                })
-                .collect(Collectors.toList());
+            if (rec != null) {
+                builder.reason(rec.getReasonCode());
+            }
+
+            items.add(builder.build());
+        }
+
+        return FriendSuggestionPageResponse.builder()
+                .items(items)
+                .nextCursor(aiResponse != null ? aiResponse.getNextCursor() : null)
+                .build();
     }
 
     List<String> mergeSuggestionIds(List<String> primaryIds, List<String> fallbackIds) {
@@ -223,12 +294,14 @@ public class FollowService {
     private List<User> findEligibleSuggestionUsers(
             List<String> candidateIds,
             String currentUserId,
-            List<String> followedIds) {
+            List<String> followedIds,
+            Set<String> blockedUserIds) {
         if (candidateIds == null || candidateIds.isEmpty()) {
             return Collections.emptyList();
         }
 
         Set<String> followedIdSet = followedIds == null ? Collections.emptySet() : new HashSet<>(followedIds);
+        Set<String> blockedIdSet = blockedUserIds == null ? Collections.emptySet() : blockedUserIds;
         Map<String, User> userMap = userRepository.findAllById(candidateIds).stream()
                 .collect(Collectors.toMap(User::getId, user -> user));
 
@@ -237,6 +310,7 @@ public class FollowService {
                 .filter(id -> !id.isBlank())
                 .filter(id -> !id.equals(currentUserId))
                 .filter(id -> !followedIdSet.contains(id))
+                .filter(id -> !blockedIdSet.contains(id))
                 .map(userMap::get)
                 .filter(Objects::nonNull)
                 .filter(user -> user.getStatus() == UserStatus.ACTIVE)
@@ -244,32 +318,21 @@ public class FollowService {
                 .toList();
     }
 
-    List<String> buildSuggestionReasons(AiRecommendationResponse.Recommendation recommendation) {
-        if (recommendation == null) {
-            return Collections.emptyList();
+    private void removeFollowForBlock(String followerId, String targetUserId) {
+        UserFollowId followId = new UserFollowId(followerId, targetUserId);
+        if (!userFollowRepository.existsById(followId)) {
+            return;
         }
 
-        List<String> reasons = new ArrayList<>();
-        List<String> commonInterests = recommendation.getCommonInterests();
-        if (commonInterests != null) {
-            commonInterests.stream()
-                    .filter(Objects::nonNull)
-                    .map(String::trim)
-                    .filter(interest -> !interest.isEmpty())
-                    .forEach(reasons::add);
-        }
+        userFollowRepository.deleteById(followId);
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.USER_UNFOLLOWED,
+                followerId + ":" + targetUserId,
+                toJson(new UserFollowPayload(followerId, targetUserId, LocalDateTime.now()))));
 
-        AiRecommendationResponse.Features features = recommendation.getFeatures();
-        if (features == null) {
-            return reasons;
-        }
-        if (Boolean.TRUE.equals(features.getSameMajor())) {
-            reasons.add("Cùng ngành");
-        }
-        if (Boolean.TRUE.equals(features.getSameGroup())) {
-            reasons.add("Cùng nhóm");
-        }
-        return reasons;
+        notificationRepository.findFirstByRecipientIdAndActorIdAndType(
+                targetUserId, followerId, NotificationType.NEW_FOLLOWER)
+                .ifPresent(notificationRepository::delete);
     }
 
     public Page<FollowResponse> searchUsers(String userId, String query, Pageable pageable) {

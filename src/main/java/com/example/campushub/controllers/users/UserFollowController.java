@@ -1,7 +1,5 @@
 package com.example.campushub.controllers.users;
 
-import java.util.List;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -9,6 +7,7 @@ import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.responses.ApiResponse;
 import com.example.campushub.responses.FollowResponse;
+import com.example.campushub.responses.FriendSuggestionPageResponse;
 import com.example.campushub.responses.PagedResponse;
 import com.example.campushub.responses.profiles.AnotherUserResponse;
 import com.example.campushub.services.FollowService;
@@ -45,9 +45,23 @@ public class UserFollowController {
         return ResponseEntity.ok(ApiResponse.ok("Đã bỏ theo dõi thành công!"));
     }
 
+    @PostMapping("/{targetId}/block")
+    public ResponseEntity<?> blockUser(@PathVariable String targetId,
+            @AuthenticationPrincipal User currentUser) throws Exception {
+        followService.blockUser(currentUser.getId(), targetId);
+        return ResponseEntity.ok(ApiResponse.ok("User blocked"));
+    }
+
+    @DeleteMapping("/{targetId}/block")
+    public ResponseEntity<?> unblockUser(@PathVariable String targetId,
+            @AuthenticationPrincipal User currentUser) throws Exception {
+        followService.unblockUser(currentUser.getId(), targetId);
+        return ResponseEntity.ok(ApiResponse.ok("User unblocked"));
+    }
+
     @GetMapping("/suggestions")
-    public ResponseEntity<?> getWhoToFollow(@AuthenticationPrincipal User currentUser) {
-        List<FollowResponse> suggestedUsers = followService.getWhoToFollow(currentUser.getId());
+    public ResponseEntity<?> getWhoToFollow(@AuthenticationPrincipal User currentUser, @RequestParam(required = false) String cursor) throws Exception {
+        FriendSuggestionPageResponse suggestedUsers = followService.getWhoToFollow(currentUser.getId(), cursor);
         return ResponseEntity.ok(ApiResponse.ok(suggestedUsers));
     }
 

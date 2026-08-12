@@ -16,15 +16,20 @@ import com.example.campushub.components.JwtTokenProvider;
 import com.example.campushub.dtos.auth.LoginDTO;
 import com.example.campushub.dtos.auth.RegisterDTO;
 import com.example.campushub.dtos.auth.ResetPasswordDTO;
+import com.example.campushub.dtos.record.users.UserStatusChangedPayload;
+import com.example.campushub.enums.Neo4jEventType;
 import com.example.campushub.enums.UserActionTokenPurpose;
 import com.example.campushub.exceptions.ResourceNotFoundException;
 import com.example.campushub.exceptions.BadRequestException;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.models.jpa.UserActionToken;
+import com.example.campushub.models.jpa.Neo4jSyncEvent;
+import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
 import com.example.campushub.repositories.jpa.UserActionTokenRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 
 import lombok.RequiredArgsConstructor;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -38,6 +43,8 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final EmailService emailService;
     private final UserActionTokenRepository userActionTokenRepository;
+    private final Neo4jSyncEventRepository neo4jSyncEventRepository;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -58,6 +65,20 @@ public class AuthService {
             .build();
 
         userRepository.saveAndFlush(newUser);
+
+        UserStatusChangedPayload payload = new UserStatusChangedPayload(newUser.getId(), newUser.getStatus());
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.USER_STATUS_CHANGED,
+                newUser.getId(),
+                toJson(payload)));
+    }
+
+    private String toJson(Object object) {
+        try {
+            return objectMapper.writeValueAsString(object);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to convert object to JSON", e);
+        }
     }
 
     public String login(LoginDTO loginDTO) throws Exception {

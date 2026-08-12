@@ -39,4 +39,5 @@ public class SeedController {
         int seededCount = postSeeder.seedPosts(user, count, maxReactions, includeImages, includeGroups);
         return ResponseEntity.ok().body(ApiResponse.ok("Seeded " + seededCount + " sample posts successfully"));
     }
+
 }

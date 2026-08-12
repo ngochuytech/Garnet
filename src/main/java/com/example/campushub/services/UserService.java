@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.dtos.record.profiles.UserProfileUpdatedPayload;
+import com.example.campushub.dtos.record.users.UserStatusChangedPayload;
 import com.example.campushub.dtos.users.UpdateInformationDTO;
 import com.example.campushub.enums.GroupStatus;
 import com.example.campushub.enums.MemberStatus;
@@ -131,7 +132,7 @@ public class UserService implements UserDetailsService {
 
         userInterestRepository.saveAll(interests);
 
-        UserProfileUpdatedPayload payload = new UserProfileUpdatedPayload(user.getId(), major, newHobbies);
+        UserProfileUpdatedPayload payload = new UserProfileUpdatedPayload(user.getId(), major, newHobbies, user.getStatus());
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
                 Neo4jEventType.USER_PROFILE_UPDATED,
                 user.getId(),
@@ -165,7 +166,7 @@ public class UserService implements UserDetailsService {
         userInterestRepository.saveAll(interests);
 
         UserProfileUpdatedPayload payload = new UserProfileUpdatedPayload(user.getId(), user.getDepartment(),
-                newTopics);
+                newTopics, user.getStatus());
 
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
                 Neo4jEventType.USER_PROFILE_UPDATED,
@@ -206,6 +207,7 @@ public class UserService implements UserDetailsService {
                 .map(AdminUserResponse::fromEntity);
     }
 
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void banUser(User currentUser, String userId) throws Exception {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
@@ -216,8 +218,10 @@ public class UserService implements UserDetailsService {
 
         user.setStatus(UserStatus.BANNED);
         userRepository.save(user);
+        queueUserStatusChangedEvent(user);
     }
 
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void unbanUser(User currentUser, String userId) throws Exception {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
@@ -228,6 +232,15 @@ public class UserService implements UserDetailsService {
 
         user.setStatus(UserStatus.ACTIVE);
         userRepository.save(user);
+        queueUserStatusChangedEvent(user);
+    }
+
+    private void queueUserStatusChangedEvent(User user) {
+        UserStatusChangedPayload payload = new UserStatusChangedPayload(user.getId(), user.getStatus());
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.USER_STATUS_CHANGED,
+                user.getId(),
+                toJson(payload)));
     }
 
     @Override

@@ -25,10 +25,12 @@ import com.example.campushub.models.jpa.CommentReaction;
 import com.example.campushub.models.jpa.CommentReactionId;
 import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.Post;
+import com.example.campushub.models.jpa.RecommendationOutbox;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.CommentReactionRepository;
 import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
+import com.example.campushub.repositories.jpa.RecommendationOutboxRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.jpa.projections.CommentReplyCountProjection;
 import com.example.campushub.responses.admin.AdminCommentResponse;
@@ -42,6 +44,7 @@ public class CommentService {
     private final Neo4jSyncEventRepository neo4jSyncEventRepository;
     private final CommentRepository commentRepository;
     private final CommentReactionRepository commentReactionRepository;
+    private final RecommendationOutboxRepository recommendationOutboxRepository;
     private final PostService postService;
     private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -126,6 +129,10 @@ public class CommentService {
     @Transactional("transactionManager")
     public void createComment(User user, String postId, String parentId, String content) throws Exception {
         Post post = postService.getActivePostById(postId);
+        boolean hasPreviouslyCommented = commentRepository
+                .findFirstByUser_IdAndPost_IdAndStatusOrderByCreatedAtAsc(
+                        user.getId(), post.getId(), ContentStatus.ACTIVE)
+                .isPresent();
 
         Comment comment = Comment.builder()
                 .post(post)
@@ -161,6 +168,16 @@ public class CommentService {
             targetId = post.getId();
         }
         commentRepository.save(comment);
+
+        if (!hasPreviouslyCommented) {
+            recommendationOutboxRepository.save(RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.USER_INTERACTION,
+                    user.getId(),
+                    Map.of(
+                            "post_id", post.getId(),
+                            "action", "COMMENT",
+                            "operation", "ADD")));
+        }
 
         PostCommentChangedPayload payload = new PostCommentChangedPayload(comment.getId());
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(

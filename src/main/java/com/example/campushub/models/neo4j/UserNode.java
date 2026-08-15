@@ -18,6 +18,10 @@ public class UserNode {
     @Id
     private String id;
 
+    private String fullName;
+
+    private String avatarUrl;
+
     private UserStatus status;
 
     private LocalDateTime createdAt;

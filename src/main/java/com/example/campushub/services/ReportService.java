@@ -33,6 +33,7 @@ import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.Neo4jSyncEvent;
 import com.example.campushub.models.jpa.Post;
+import com.example.campushub.models.jpa.RecommendationOutbox;
 import com.example.campushub.models.jpa.Report;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.CommentRepository;
@@ -40,6 +41,7 @@ import com.example.campushub.repositories.jpa.GroupMemberRepository;
 import com.example.campushub.repositories.jpa.GroupRepository;
 import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
+import com.example.campushub.repositories.jpa.RecommendationOutboxRepository;
 import com.example.campushub.repositories.jpa.ReportRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.responses.ReportResponse;
@@ -55,6 +57,7 @@ public class ReportService {
     private final Neo4jSyncEventRepository neo4jSyncEventRepository;
     private final ReportRepository reportRepository;
     private final PostRepository postRepository;
+    private final RecommendationOutboxRepository recommendationOutboxRepository;
     private final CommentRepository commentRepository;
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
@@ -400,8 +403,16 @@ public class ReportService {
     }
 
     private void markPostReportedAndSynchronize(Post post) {
+        boolean isBeingReported = post.getStatus() != ContentStatus.REPORTED;
         post.setStatus(ContentStatus.REPORTED);
         postRepository.saveAndFlush(post);
+
+        if (isBeingReported) {
+            recommendationOutboxRepository.save(RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.POST_INVALIDATE,
+                    post.getId(),
+                    null));
+        }
 
         PostStatusChangedPayload payload = new PostStatusChangedPayload(post.getId(), ContentStatus.REPORTED);
 

@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.campushub.dtos.record.profiles.UserProfileUpdatedPayload;
+import com.example.campushub.dtos.record.users.UserDisplayUpdatedPayload;
 import com.example.campushub.dtos.record.users.UserStatusChangedPayload;
 import com.example.campushub.dtos.users.UpdateInformationDTO;
 import com.example.campushub.enums.GroupStatus;
@@ -26,11 +27,13 @@ import com.example.campushub.exceptions.ForbiddenException;
 import com.example.campushub.exceptions.ResourceNotFoundException;
 import com.example.campushub.models.jpa.GroupMember;
 import com.example.campushub.models.jpa.Neo4jSyncEvent;
+import com.example.campushub.models.jpa.RecommendationOutbox;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.models.jpa.UserInterest;
 import com.example.campushub.models.jpa.UserInterestId;
 import com.example.campushub.repositories.jpa.GroupMemberRepository;
 import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
+import com.example.campushub.repositories.jpa.RecommendationOutboxRepository;
 import com.example.campushub.repositories.jpa.UserInterestRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
@@ -50,6 +53,7 @@ public class UserService implements UserDetailsService {
     private final GroupMemberRepository groupMemberRepository;
     private final InterestNeo4jRepository interestNeo4jRepository;
     private final Neo4jSyncEventRepository neo4jSyncEventRepository;
+    private final RecommendationOutboxRepository recommendationOutboxRepository;
     private final UserInterestRepository userInterestRepository;
     private final ObjectMapper objectMapper;
 
@@ -82,10 +86,12 @@ public class UserService implements UserDetailsService {
                 .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
     }
 
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void updateInformationUser(User user, UpdateInformationDTO dto) throws Exception {
         if (dto.getFullname() == null || dto.getFullname().isEmpty()) {
             throw new BadRequestException("Full name is required");
         }
+        boolean hasFullNameChanged = !java.util.Objects.equals(user.getFullName(), dto.getFullname());
         user.setFullName(dto.getFullname());
         user.setDateOfBirth(dto.getDateOfBirth());
         if (dto.getGender().equals("Nam"))
@@ -95,6 +101,10 @@ public class UserService implements UserDetailsService {
         else
             user.setGender(null);
         userRepository.save(user);
+
+        if (hasFullNameChanged) {
+            queueUserDisplayUpdatedEvent(user);
+        }
     }
 
     public void updatePasswordUser(User user, String currentPassword, String newPassword) throws Exception {
@@ -105,14 +115,20 @@ public class UserService implements UserDetailsService {
         userRepository.save(user);
     }
 
+    @Transactional("transactionManager")
     public void updateBioUser(User user, String bio) {
         int wordCount = bio.trim().split("\\s+").length;
         if (wordCount > 1000) {
             throw new BadRequestException("Bio cannot exceed 1000 words. Current: " + wordCount + " words");
         }
 
+        boolean hasBioChanged = !java.util.Objects.equals(user.getBio(), bio);
         user.setBio(bio);
         userRepository.save(user);
+
+        if (hasBioChanged) {
+            queueRecommendationUserProfileChanged(user.getId());
+        }
     }
 
     @Transactional(value = "transactionManager", rollbackFor = Exception.class)
@@ -139,13 +155,19 @@ public class UserService implements UserDetailsService {
                 toJson(payload)));
     }
 
+    @Transactional(value = "transactionManager", rollbackFor = Exception.class)
     public void updateAvatarUser(User user, String avatarUrl) throws Exception {
         if (avatarUrl == null || avatarUrl.isBlank()) {
             throw new IllegalArgumentException("Đường dẫn ảnh đại diện không được để trống");
         }
 
+        boolean hasAvatarChanged = !java.util.Objects.equals(user.getAvatarUrl(), avatarUrl);
         user.setAvatarUrl(avatarUrl);
         userRepository.save(user);
+
+        if (hasAvatarChanged) {
+            queueUserDisplayUpdatedEvent(user);
+        }
     }
 
     @Transactional("transactionManager")
@@ -153,6 +175,7 @@ public class UserService implements UserDetailsService {
         boolean isNull = topic == null || topic.isEmpty();
 
         Set<String> newTopics = isNull ? Set.of() : topic;
+        boolean haveTopicsChanged = !userInterestRepository.findInterestNamesByUserId(user.getId()).equals(newTopics);
 
         userInterestRepository.deleteByIdUserId(user.getId());
 
@@ -164,6 +187,10 @@ public class UserService implements UserDetailsService {
                 .toList();
 
         userInterestRepository.saveAll(interests);
+
+        if (haveTopicsChanged) {
+            queueRecommendationUserProfileChanged(user.getId());
+        }
 
         UserProfileUpdatedPayload payload = new UserProfileUpdatedPayload(user.getId(), user.getDepartment(),
                 newTopics, user.getStatus());
@@ -241,6 +268,24 @@ public class UserService implements UserDetailsService {
                 Neo4jEventType.USER_STATUS_CHANGED,
                 user.getId(),
                 toJson(payload)));
+    }
+
+    private void queueUserDisplayUpdatedEvent(User user) {
+        UserDisplayUpdatedPayload payload = new UserDisplayUpdatedPayload(
+                user.getId(),
+                user.getFullName(),
+                user.getAvatarUrl());
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.USER_DISPLAY_UPDATED,
+                user.getId(),
+                toJson(payload)));
+    }
+
+    private void queueRecommendationUserProfileChanged(String userId) {
+        recommendationOutboxRepository.save(RecommendationOutbox.create(
+                RecommendationOutbox.EventType.USER_PROFILE_CHANGED,
+                userId,
+                null));
     }
 
     @Override

@@ -10,6 +10,7 @@ import org.springframework.data.neo4j.repository.query.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.example.campushub.models.neo4j.UserNode;
+import com.example.campushub.repositories.neo4j.projections.FriendSuggestionCandidate;
 import com.example.campushub.responses.FollowStats;
 
 public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
@@ -59,7 +60,104 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
        @Query("MERGE (u:User {id: $userId}) " +
                      "SET u.status = $status " +
                      "RETURN count(u)")
-        long updateUserStatus(@Param("userId") String userId, @Param("status") String status);
+       long updateUserStatus(@Param("userId") String userId, @Param("status") String status);
+
+       @Query("""
+                     MERGE (u:User {id: $userId})
+                     SET u.fullName = $fullName,
+                         u.avatarUrl = $avatarUrl
+                     RETURN count(u)
+                     """)
+       long updateUserDisplay(
+                     @Param("userId") String userId,
+                     @Param("fullName") String fullName,
+                     @Param("avatarUrl") String avatarUrl);
+
+       @Query("""
+                     MATCH (me:User {id: $userId})
+                     CALL {
+                         WITH me
+                         MATCH (me)-[:FOLLOWS]->(bridge:User)-[:FOLLOWS]->(candidate:User)
+                         WHERE candidate <> me
+                         RETURN candidate.id AS candidateId,
+                                count(DISTINCT bridge) AS mutualCount,
+                                0 AS sameMajorCount,
+                                0 AS sharedInterestCount,
+                                0 AS sharedGroupCount
+                         UNION ALL
+                         WITH me
+                         MATCH (me)-[:MAJORS_IN]->(:Major)<-[:MAJORS_IN]-(candidate:User)
+                         WHERE candidate <> me
+                         RETURN candidate.id AS candidateId,
+                                0 AS mutualCount,
+                                1 AS sameMajorCount,
+                                0 AS sharedInterestCount,
+                                0 AS sharedGroupCount
+                         UNION ALL
+                         WITH me
+                         MATCH (me)-[:INTERESTED_IN]->(interest:Interest)<-[:INTERESTED_IN]-(candidate:User)
+                         WHERE candidate <> me
+                         RETURN candidate.id AS candidateId,
+                                0 AS mutualCount,
+                                0 AS sameMajorCount,
+                                count(DISTINCT interest) AS sharedInterestCount,
+                                0 AS sharedGroupCount
+                         UNION ALL
+                         WITH me
+                         MATCH (me)-[:JOINED_GROUP]->(group:Group)<-[:JOINED_GROUP]-(candidate:User)
+                         WHERE candidate <> me
+                         RETURN candidate.id AS candidateId,
+                                0 AS mutualCount,
+                                0 AS sameMajorCount,
+                                0 AS sharedInterestCount,
+                                count(DISTINCT group) AS sharedGroupCount
+                     }
+                     WITH me, candidateId,
+                          max(mutualCount) AS mutualCount,
+                          max(sameMajorCount) AS sameMajorCount,
+                          max(sharedInterestCount) AS sharedInterestCount,
+                          max(sharedGroupCount) AS sharedGroupCount
+                     MATCH (candidate:User {id: candidateId})
+                     WHERE coalesce(candidate.status, 'ACTIVE') = 'ACTIVE'
+                       AND NOT (me)-[:FOLLOWS]->(candidate)
+                     WITH candidate, mutualCount, sameMajorCount, sharedInterestCount, sharedGroupCount
+                     ORDER BY mutualCount DESC,
+                              sameMajorCount DESC,
+                              sharedInterestCount DESC,
+                              sharedGroupCount DESC,
+                              candidate.id ASC
+                     LIMIT $candidatePoolSize
+                     WITH candidate, mutualCount, sameMajorCount, sharedInterestCount, sharedGroupCount, rand() AS randomOrder
+                     ORDER BY randomOrder
+                     LIMIT $limit
+                     RETURN candidate.id AS id,
+                            candidate.fullName AS fullName,
+                            candidate.avatarUrl AS avatarUrl,
+                            head([(candidate)-[:MAJORS_IN]->(major:Major) | major.name]) AS majorName
+                     """)
+       List<FriendSuggestionCandidate> findFriendSuggestionCandidates(
+                     @Param("userId") String userId,
+                     @Param("candidatePoolSize") int candidatePoolSize,
+                     @Param("limit") int limit);
+
+       @Query("""
+                     MATCH (me:User {id: $userId}), (candidate:User)
+                     WHERE candidate <> me
+                       AND coalesce(candidate.status, 'ACTIVE') = 'ACTIVE'
+                       AND NOT (me)-[:FOLLOWS]->(candidate)
+                       AND NOT candidate.id IN $excludedUserIds
+                     WITH candidate, rand() AS randomOrder
+                     ORDER BY randomOrder
+                     LIMIT $limit
+                     RETURN candidate.id AS id,
+                            candidate.fullName AS fullName,
+                            candidate.avatarUrl AS avatarUrl,
+                            head([(candidate)-[:MAJORS_IN]->(major:Major) | major.name]) AS majorName
+                     """)
+       List<FriendSuggestionCandidate> findRandomFriendSuggestionCandidates(
+                     @Param("userId") String userId,
+                     @Param("excludedUserIds") List<String> excludedUserIds,
+                     @Param("limit") int limit);
 
         @Query("""
                       UNWIND $users AS row
@@ -126,26 +224,6 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
                      "COUNT { (u)<-[:FOLLOWS]-() } AS followersCount")
        FollowStats getFollowStats(@Param("userId") String userId);
 
-       // 9. Lấy 5 gợi ý kết bạn dựa trên số lượng kỹ năng/ sở thích chung
-       @Query("MATCH (me:User {id: $currentUserId})-[:INTERESTED_IN]->(t:Interest)<-[:INTERESTED_IN]-(suggested:User) "
-                     +
-                     "WHERE me <> suggested AND coalesce(suggested.status, 'ACTIVE') = 'ACTIVE' " +
-                     "AND NOT (me)-[:FOLLOWS]->(suggested) " +
-                     "WITH suggested, count(t) AS sharedInterests " +
-                     "ORDER BY sharedInterests DESC " +
-                     "LIMIT $limit " +
-                     "RETURN suggested.id")
-       List<String> getSuggestedUserByHooby(@Param("currentUserId") String currentUserId, @Param("limit") int limit);
-
-       // 10. Thuật toán quét "Phòng hở" (Fallback): Chỉ lấy 5 người ngẫu nhiên chưa follow
-       // Dùng cho TH người dùng mới chưa có sở thích nào hoặc sở thích quá ít để gợi ý chính xác
-       @Query("MATCH (me:User {id: $currentUserId}), (suggested:User) " +
-                     "WHERE me <> suggested AND coalesce(suggested.status, 'ACTIVE') = 'ACTIVE' " +
-                     "AND NOT (me)-[:FOLLOWS]->(suggested) " +
-                     "RETURN suggested.id " +
-                     "LIMIT $limit")
-       List<String> getRandomSuggestedUser(@Param("currentUserId") String currentUserId, @Param("limit") int limit);
-
        // 11. Lấy danh sách ID những người mà User đang theo dõi (Following)
        @Query("MATCH (u:User {id: $userId})-[:FOLLOWS]->(f:User) " +
                      "RETURN f.id " +
@@ -166,6 +244,4 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
                      @Param("offset") long offset,
                      @Param("limitPlusOne") int limitPlusOne);
 
-       @Query("MATCH (u:User {id: $userId})-[:FOLLOWS]->(f:User) RETURN f.id")
-       List<String> findAllFollowingIds(@Param("userId") String userId);
 }

@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.example.campushub.enums.ContentStatus;
+import com.example.campushub.enums.UserStatus;
 import com.example.campushub.models.jpa.Post;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.projections.PostCountProjection;
@@ -68,13 +69,113 @@ public interface PostRepository extends JpaRepository<Post, String> {
                         @Param("cursorPostId") String cursorPostId,
                         Pageable pageable);
 
+        @Query("SELECT p FROM Post p " +
+                        "WHERE p.id IN :postIds " +
+                        "AND p.group.id = :groupId " +
+                        "AND p.status = :status")
+        List<Post> findActivePostsByIdsAndGroupId(
+                        @Param("postIds") List<String> postIds,
+                        @Param("groupId") String groupId,
+                        @Param("status") ContentStatus status);
+
         Optional<Post> findByIdAndStatus(String id, ContentStatus status);
+
+        boolean existsByUser_IdAndSharedPost_IdAndStatus(String userId, String sharedPostId, ContentStatus status);
 
         @Query("SELECT COUNT(*) FROM Post p " +
                         "WHERE p.createdAt >= :start AND p.createdAt < :end")
         long countPostBetweenStartAndEnd(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 
         List<Post> findByIdInAndStatus(List<String> ids, ContentStatus status);
+
+        @Query("SELECT p FROM Post p " +
+                        "WHERE p.id IN :postIds " +
+                        "AND p.status = :postStatus " +
+                        "AND (p.user.status IS NULL OR p.user.status = :authorStatus)")
+        List<Post> findVisiblePostsByIds(
+                        @Param("postIds") List<String> postIds,
+                        @Param("postStatus") ContentStatus postStatus,
+                        @Param("authorStatus") UserStatus authorStatus);
+
+        @Query("SELECT p FROM Post p " +
+                        "WHERE p.id IN :postIds " +
+                        "AND p.status = :postStatus " +
+                        "AND (p.user.status IS NULL OR p.user.status = :authorStatus) " +
+                        "AND EXISTS (SELECT 1 FROM PostTag tag " +
+                        "WHERE tag.post.id = p.id AND tag.id.tagName = :topicName)")
+        List<Post> findVisiblePostsByIdsAndTopicName(
+                        @Param("postIds") List<String> postIds,
+                        @Param("topicName") String topicName,
+                        @Param("postStatus") ContentStatus postStatus,
+                        @Param("authorStatus") UserStatus authorStatus);
+
+        @Query("SELECT p FROM Post p " +
+                        "WHERE p.status = :postStatus " +
+                        "AND (p.user.status IS NULL OR p.user.status = :authorStatus) " +
+                        "AND (" +
+                        "EXISTS (SELECT 1 FROM UserFollow follow " +
+                        "WHERE follow.follower.id = :userId AND follow.target.id = p.user.id) " +
+                        "OR EXISTS (SELECT 1 FROM PostTag tag " +
+                        "WHERE tag.post.id = p.id " +
+                        "AND tag.id.tagName IN (SELECT interest.id.interestName FROM UserInterest interest " +
+                        "WHERE interest.user.id = :userId))" +
+                        ") " +
+                        "ORDER BY p.createdAt DESC, p.id DESC")
+        List<Post> findLatestHomeFeedPosts(
+                        @Param("userId") String userId,
+                        @Param("postStatus") ContentStatus postStatus,
+                        @Param("authorStatus") UserStatus authorStatus,
+                        Pageable pageable);
+
+        @Query("SELECT p FROM Post p " +
+                        "WHERE p.status = :postStatus " +
+                        "AND (p.user.status IS NULL OR p.user.status = :authorStatus) " +
+                        "AND (" +
+                        "EXISTS (SELECT 1 FROM UserFollow follow " +
+                        "WHERE follow.follower.id = :userId AND follow.target.id = p.user.id) " +
+                        "OR EXISTS (SELECT 1 FROM PostTag tag " +
+                        "WHERE tag.post.id = p.id " +
+                        "AND tag.id.tagName IN (SELECT interest.id.interestName FROM UserInterest interest " +
+                        "WHERE interest.user.id = :userId))" +
+                        ") " +
+                        "AND (p.createdAt < :cursorCreatedAt " +
+                        "OR (p.createdAt = :cursorCreatedAt AND p.id < :cursorPostId)) " +
+                        "ORDER BY p.createdAt DESC, p.id DESC")
+        List<Post> findLatestHomeFeedPostsAfter(
+                        @Param("userId") String userId,
+                        @Param("postStatus") ContentStatus postStatus,
+                        @Param("authorStatus") UserStatus authorStatus,
+                        @Param("cursorCreatedAt") LocalDateTime cursorCreatedAt,
+                        @Param("cursorPostId") String cursorPostId,
+                        Pageable pageable);
+
+        @Query("SELECT p FROM Post p " +
+                        "WHERE p.status = :postStatus " +
+                        "AND (p.user.status IS NULL OR p.user.status = :authorStatus) " +
+                        "AND EXISTS (SELECT 1 FROM PostTag tag " +
+                        "WHERE tag.post.id = p.id AND tag.id.tagName = :topicName) " +
+                        "ORDER BY p.createdAt DESC, p.id DESC")
+        List<Post> findLatestPostsByTopicName(
+                        @Param("topicName") String topicName,
+                        @Param("postStatus") ContentStatus postStatus,
+                        @Param("authorStatus") UserStatus authorStatus,
+                        Pageable pageable);
+
+        @Query("SELECT p FROM Post p " +
+                        "WHERE p.status = :postStatus " +
+                        "AND (p.user.status IS NULL OR p.user.status = :authorStatus) " +
+                        "AND EXISTS (SELECT 1 FROM PostTag tag " +
+                        "WHERE tag.post.id = p.id AND tag.id.tagName = :topicName) " +
+                        "AND (p.createdAt < :cursorCreatedAt " +
+                        "OR (p.createdAt = :cursorCreatedAt AND p.id < :cursorPostId)) " +
+                        "ORDER BY p.createdAt DESC, p.id DESC")
+        List<Post> findLatestPostsByTopicNameAfter(
+                        @Param("topicName") String topicName,
+                        @Param("postStatus") ContentStatus postStatus,
+                        @Param("authorStatus") UserStatus authorStatus,
+                        @Param("cursorCreatedAt") LocalDateTime cursorCreatedAt,
+                        @Param("cursorPostId") String cursorPostId,
+                        Pageable pageable);
 
         @Query("SELECT imageUrl FROM Post p JOIN p.images imageUrl WHERE p.id = :postId")
         List<String> findImageUrlsByPostId(@Param("postId") String postId);

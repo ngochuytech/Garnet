@@ -57,6 +57,12 @@ public class UserProfileController {
                 .build()));
     }
 
+    @GetMapping("/me/follow-stats")
+    public ResponseEntity<?> getCurrentUserFollowStats(@AuthenticationPrincipal User currentUser) throws Exception {
+        FollowStats followStats = followService.countFollowersAndFollowing(currentUser.getId());
+        return ResponseEntity.ok(ApiResponse.ok(followStats));
+    }
+
     @GetMapping("/{userId}")
     public ResponseEntity<?> getUserProfile(@AuthenticationPrincipal User currentUser, @PathVariable String userId) throws Exception {
         User userProfile = userService.getUserById(userId);

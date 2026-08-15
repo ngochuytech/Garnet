@@ -16,5 +16,4 @@ public class FollowResponse {
     private String fullName;
     private String avatarUrl;
     private String department;
-    private String reason;
 }

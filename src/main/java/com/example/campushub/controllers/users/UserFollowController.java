@@ -60,8 +60,8 @@ public class UserFollowController {
     }
 
     @GetMapping("/suggestions")
-    public ResponseEntity<?> getWhoToFollow(@AuthenticationPrincipal User currentUser, @RequestParam(required = false) String cursor) throws Exception {
-        FriendSuggestionPageResponse suggestedUsers = followService.getWhoToFollow(currentUser.getId(), cursor);
+    public ResponseEntity<?> getWhoToFollow(@AuthenticationPrincipal User currentUser) {
+        FriendSuggestionPageResponse suggestedUsers = followService.getWhoToFollow(currentUser.getId());
         return ResponseEntity.ok(ApiResponse.ok(suggestedUsers));
     }
 

@@ -77,10 +77,6 @@ public class UserPostController {
             @AuthenticationPrincipal User user,
             @ModelAttribute @Valid CreatePostDTO dto)
             throws Exception {
-        if ((dto.getImageUrls() == null || dto.getImageUrls().isEmpty()) && (dto.getContent() == null || dto.getContent().isBlank())
-                && (dto.getVideoUrls() == null || dto.getVideoUrls().isEmpty())) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Bài viết phải có nội dung, ảnh hoặc video"));
-        }
         postService.createPost(user, dto);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Tạo bài viết thành công"));
     }

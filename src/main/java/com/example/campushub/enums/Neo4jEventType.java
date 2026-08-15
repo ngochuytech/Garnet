@@ -2,6 +2,7 @@ package com.example.campushub.enums;
 
 public enum Neo4jEventType {
     USER_PROFILE_UPDATED,
+    USER_DISPLAY_UPDATED,
     USER_STATUS_CHANGED,
     USER_FOLLOWED,
     USER_UNFOLLOWED,

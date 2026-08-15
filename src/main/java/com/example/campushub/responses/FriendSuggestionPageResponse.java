@@ -9,5 +9,4 @@ import lombok.Data;
 @Builder
 public class FriendSuggestionPageResponse {
     private List<FollowResponse> items;
-    private String nextCursor;
 }

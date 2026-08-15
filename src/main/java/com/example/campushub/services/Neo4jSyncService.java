@@ -17,6 +17,7 @@ import com.example.campushub.dtos.record.posts.PostReactionChangedPayload;
 import com.example.campushub.dtos.record.posts.PostStatusChangedPayload;
 import com.example.campushub.dtos.record.posts.PostSharedPayload;
 import com.example.campushub.dtos.record.profiles.UserProfileUpdatedPayload;
+import com.example.campushub.dtos.record.users.UserDisplayUpdatedPayload;
 import com.example.campushub.dtos.record.users.UserFollowPayload;
 import com.example.campushub.dtos.record.users.UserStatusChangedPayload;
 import com.example.campushub.enums.ContentStatus;
@@ -67,6 +68,7 @@ public class Neo4jSyncService {
                 case "GROUP_DELETED" -> syncGroupDeleted(event);
                 case "GROUP_NAME_UPDATED" -> syncGroupNameUpdated(event);
                 case "USER_PROFILE_UPDATED" -> syncUserProfileUpdated(event);
+                case "USER_DISPLAY_UPDATED" -> syncUserDisplayUpdated(event);
                 case "USER_STATUS_CHANGED" -> syncUserStatusChanged(event);
                 case "USER_FOLLOWED" -> syncUserFollowed(event);
                 case "USER_UNFOLLOWED" -> syncUserUnfollowed(event);
@@ -207,6 +209,21 @@ public class Neo4jSyncService {
 
         if (updatedCount != 1) {
             throw new IllegalStateException("Neo4j did not update the user status");
+        }
+    }
+
+    private void syncUserDisplayUpdated(Neo4jSyncEvent event) {
+        UserDisplayUpdatedPayload payload = objectMapper.readValue(
+                event.getPayload(),
+                UserDisplayUpdatedPayload.class);
+
+        long updatedCount = userNeo4jRepository.updateUserDisplay(
+                payload.userId(),
+                payload.fullName(),
+                payload.avatarUrl());
+
+        if (updatedCount != 1) {
+            throw new IllegalStateException("Neo4j did not update the user display information");
         }
     }
 

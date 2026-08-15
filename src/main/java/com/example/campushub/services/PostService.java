@@ -6,10 +6,10 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.context.ApplicationEventPublisher;
@@ -19,6 +19,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.campushub.dtos.recommendation.RecommendationFeedResponse;
+import com.example.campushub.dtos.recommendation.RecommendationItem;
 import com.example.campushub.dtos.record.posts.PostCreatedPayload;
 import com.example.campushub.dtos.record.posts.PostReactionChangedPayload;
 import com.example.campushub.dtos.record.posts.PostSharedPayload;
@@ -33,9 +35,11 @@ import com.example.campushub.enums.MemberStatus;
 import com.example.campushub.enums.Neo4jEventType;
 import com.example.campushub.enums.NotificationType;
 import com.example.campushub.enums.ReactionType;
+import com.example.campushub.enums.UserStatus;
 import com.example.campushub.events.NotificationEvent;
 import com.example.campushub.exceptions.BadRequestException;
 import com.example.campushub.exceptions.ForbiddenException;
+import com.example.campushub.exceptions.RecommendationClientException;
 import com.example.campushub.exceptions.ResourceNotFoundException;
 import com.example.campushub.models.jpa.Group;
 import com.example.campushub.models.jpa.GroupMember;
@@ -46,6 +50,7 @@ import com.example.campushub.models.jpa.PostReaction;
 import com.example.campushub.models.jpa.PostReactionId;
 import com.example.campushub.models.jpa.PostTag;
 import com.example.campushub.models.jpa.PostTagId;
+import com.example.campushub.models.jpa.RecommendationOutbox;
 import com.example.campushub.models.jpa.User;
 import com.example.campushub.repositories.jpa.CommentRepository;
 import com.example.campushub.repositories.jpa.GroupMemberRepository;
@@ -54,26 +59,32 @@ import com.example.campushub.repositories.jpa.Neo4jSyncEventRepository;
 import com.example.campushub.repositories.jpa.PostReactionRepository;
 import com.example.campushub.repositories.jpa.PostRepository;
 import com.example.campushub.repositories.jpa.PostTagRepository;
+import com.example.campushub.repositories.jpa.RecommendationOutboxRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.jpa.projections.PostCountProjection;
 import com.example.campushub.repositories.jpa.projections.PostReactionCountProjection;
 import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
-import com.example.campushub.repositories.neo4j.PostCursorProjection;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
 import com.example.campushub.responses.CursorPagedResponse;
 import com.example.campushub.responses.PostResponse;
 import com.example.campushub.responses.admin.AdminPostResponse;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PostService {
-    private static final int MAX_POST_FEED_PAGE_SIZE = 50;
+    private static final int MAX_POST_FEED_PAGE_SIZE = 100;
     private static final String POST_CURSOR_SEPARATOR = "|";
+    private static final String FALLBACK_HOME_CURSOR_PREFIX = "fallback:";
+    private static final String TOPIC_FALLBACK_CURSOR_PREFIX = "topic-fallback:";
+    private static final String GROUP_FALLBACK_CURSOR_PREFIX = "group-fallback:";
 
     private final PostRepository postRepository;
+    private final RecommendationClient recommendationClient;
     private final PostNeo4jRepository postNeo4jRepository;
     private final PostTagRepository postTagRepository;
     private final InterestNeo4jRepository tagNeo4jRepository;
@@ -82,6 +93,7 @@ public class PostService {
     private final GroupMemberRepository groupMemberRepository;
     private final PostReactionRepository postReactionRepository;
     private final CommentRepository commentRepository;
+    private final RecommendationOutboxRepository recommendationOutboxRepository;
     private final Neo4jSyncEventRepository neo4jSyncEventRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
@@ -150,6 +162,11 @@ public class PostService {
                 .toList();
         postTagRepository.saveAll(postTags);
 
+        recommendationOutboxRepository.save(RecommendationOutbox.create(
+                RecommendationOutbox.EventType.POST_UPSERT,
+                post.getId(),
+                null));
+
         PostCreatedPayload payload = new PostCreatedPayload(
                 post.getId(),
                 user.getId(),
@@ -170,6 +187,10 @@ public class PostService {
 
         boolean isNewLike = false;
 
+        Map<String, Object> payload = new HashMap<>(Map.of(
+                "post_id", post.getId(),
+                "action", "LIKE"));
+
         if (reaction == null) {
             reaction = PostReaction.builder()
                     .id(new PostReactionId(post.getId(), user.getId()))
@@ -179,12 +200,44 @@ public class PostService {
                     .build();
             postReactionRepository.save(reaction);
             isNewLike = true;
+
+            // + 3 positive
+            payload.put("operation", "ADD");
+            recommendationOutboxRepository.save(RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.USER_INTERACTION,
+                    user.getId(),
+                    payload));
+
         } else if (reaction.getType() == ReactionType.DISLIKE) {
             reaction.setType(ReactionType.LIKE);
             postReactionRepository.save(reaction);
             isNewLike = true;
+
+            // + 3 positive
+            Map<String, Object> likePayload = new HashMap<>(payload);
+            likePayload.put("operation", "ADD");
+            RecommendationOutbox likeEvent = RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.USER_INTERACTION,
+                    user.getId(),
+                    likePayload);
+            // - 2 negative (remove dislike)
+            Map<String, Object> dislikePayload = new HashMap<>(payload);
+            dislikePayload.put("action", "DISLIKE");
+            dislikePayload.put("operation", "REMOVE");
+            RecommendationOutbox dislikeEvent = RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.USER_INTERACTION,
+                    user.getId(),
+                    dislikePayload);
+            recommendationOutboxRepository.saveAll(List.of(likeEvent, dislikeEvent));
         } else {
             postReactionRepository.delete(reaction);
+
+            // - 3 positive
+            payload.put("operation", "REMOVE");
+            recommendationOutboxRepository.save(RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.USER_INTERACTION,
+                    user.getId(),
+                    payload));
         }
 
         queuePostReactionChangedEvent(user.getId(), post.getId(), LocalDateTime.now());
@@ -208,6 +261,10 @@ public class PostService {
         Post post = getPostById(postId);
         PostReaction reaction = postReactionRepository.findByPostAndUser(post, user);
 
+        Map<String, Object> payload = new HashMap<>(Map.of(
+                "post_id", post.getId(),
+                "action", "DISLIKE"));
+
         if (reaction == null) {
             reaction = PostReaction.builder()
                     .id(new PostReactionId(post.getId(), user.getId()))
@@ -216,11 +273,42 @@ public class PostService {
                     .type(ReactionType.DISLIKE)
                     .build();
             postReactionRepository.save(reaction);
+
+            // + 2 negative
+            payload.put("operation", "ADD");
+            recommendationOutboxRepository.save(RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.USER_INTERACTION,
+                    user.getId(),
+                    payload));
         } else if (reaction.getType() == ReactionType.LIKE) {
             reaction.setType(ReactionType.DISLIKE);
             postReactionRepository.save(reaction);
+
+            // + 2 negative
+            Map<String, Object> dislikePayload = new HashMap<>(payload);
+            dislikePayload.put("operation", "ADD");
+            RecommendationOutbox dislikeEvent = RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.USER_INTERACTION,
+                    user.getId(),
+                    dislikePayload);
+            // - 3 positive (remove like)
+            Map<String, Object> likePayload = new HashMap<>(payload);
+            likePayload.put("action", "LIKE");
+            likePayload.put("operation", "REMOVE");
+            RecommendationOutbox likeEvent = RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.USER_INTERACTION,
+                    user.getId(),
+                    likePayload);
+
+            recommendationOutboxRepository.saveAll(List.of(dislikeEvent, likeEvent));
         } else {
             postReactionRepository.delete(reaction);
+            // - 2 negative
+            payload.put("operation", "REMOVE");
+            recommendationOutboxRepository.save(RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.USER_INTERACTION,
+                    user.getId(),
+                    payload));
         }
 
         queuePostReactionChangedEvent(user.getId(), post.getId(), LocalDateTime.now());
@@ -245,6 +333,8 @@ public class PostService {
             originalPostId = targetPost.getId();
         }
         Post originalPost = getActivePostById(originalPostId);
+        boolean hasPreviouslySharedOriginalPost = postRepository.existsByUser_IdAndSharedPost_IdAndStatus(
+                user.getId(), originalPost.getId(), ContentStatus.ACTIVE);
 
         long existingTagsCount = tagNeo4jRepository.countByNameIn(dto.getTags());
         if (existingTagsCount != dto.getTags().size()) {
@@ -277,6 +367,16 @@ public class PostService {
                 Neo4jEventType.POST_SHARED,
                 sharedPost.getId(),
                 toJson(payload)));
+
+        if (!hasPreviouslySharedOriginalPost) {
+            recommendationOutboxRepository.save(RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.USER_INTERACTION,
+                    user.getId(),
+                    Map.of(
+                            "post_id", originalPost.getId(),
+                            "action", "SHARE",
+                            "operation", "ADD")));
+        }
 
         if (!user.getId().equals(originalPost.getUser().getId())) {
             NotificationEvent event = NotificationEvent.builder()
@@ -357,9 +457,17 @@ public class PostService {
             throw new ForbiddenException("Bạn không có quyền xóa bài viết này");
         }
 
+        boolean isBeingDeleted = post.getStatus() != ContentStatus.DELETED;
         post.setStatus(ContentStatus.DELETED);
 
         postRepository.save(post);
+
+        if (isBeingDeleted) {
+            recommendationOutboxRepository.save(RecommendationOutbox.create(
+                    RecommendationOutbox.EventType.POST_INVALIDATE,
+                    post.getId(),
+                    null));
+        }
 
         PostStatusChangedPayload payload = new PostStatusChangedPayload(
                 post.getId(),
@@ -377,6 +485,7 @@ public class PostService {
         userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
         validatePostFeedPageSize(size);
+
         PostCursor decodedCursor = decodePostCursor(cursor);
         int limitPlusOne = size + 1;
         Pageable limit = PageRequest.of(0, limitPlusOne);
@@ -416,25 +525,47 @@ public class PostService {
             String cursor,
             User user) throws Exception {
         validatePostFeedPageSize(size);
-        PostCursor decodedCursor = decodePostCursor(cursor);
-        int limitPlusOne = size + 1;
 
-        List<PostCursorProjection> candidatePosts = decodedCursor == null
-                ? postNeo4jRepository.findLatestHomeFeedPosts(user.getId(), limitPlusOne)
-                : postNeo4jRepository.findLatestHomeFeedPostsAfter(
-                        user.getId(),
-                        decodedCursor.createdAt(),
-                        decodedCursor.postId(),
-                        limitPlusOne);
+        if (isFallbackHomeCursor(cursor)) {
+            return getPostsForHomeFallbackResponses(
+                    size,
+                    fallbackCursorValue(cursor, FALLBACK_HOME_CURSOR_PREFIX),
+                    user);
+        }
 
-        boolean hasNext = candidatePosts.size() > size;
-        List<PostCursorProjection> pageCandidates = hasNext
-                ? candidatePosts.subList(0, size)
-                : candidatePosts;
-        List<String> pagePostIds = pageCandidates.stream()
-                .map(PostCursorProjection::getId)
-                .collect(Collectors.toList());
-        List<Post> posts = findActivePostsInOrder(pagePostIds);
+        try {
+            return getRecommendedPostsForHomeResponses(size, cursor, user);
+        } catch (RecommendationClientException e) {
+            log.warn("Recommendation service is unavailable; using the MySQL home feed fallback: {}", e.getMessage());
+            return getPostsForHomeFallbackResponses(size, null, user);
+        }
+    }
+
+    private CursorPagedResponse<PostResponse> getRecommendedPostsForHomeResponses(
+            int size,
+            String cursor,
+            User user) {
+        RecommendationFeedResponse recommendationResponse = recommendationClient
+                .getRecommendations(user.getId(), size, cursor);
+
+        List<String> recommendedPostIds = recommendationResponse.items().stream()
+                .map(RecommendationItem::postId)
+                .filter(postId -> postId != null && !postId.isBlank())
+                .toList();
+
+        Map<String, Post> postsById = recommendedPostIds.isEmpty()
+                ? Map.of()
+                : postRepository.findVisiblePostsByIds(
+                        recommendedPostIds,
+                        ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE).stream()
+                        .collect(Collectors.toMap(Post::getId, Function.identity()));
+
+        // Do not sort this list: the Python service already determined the ranking order.
+        List<Post> posts = recommendedPostIds.stream()
+                .map(postsById::get)
+                .filter(java.util.Objects::nonNull)
+                .toList();
 
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
@@ -443,10 +574,72 @@ public class PostService {
                 .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
                 .collect(Collectors.toList());
 
-        String nextCursor = hasNext && !pageCandidates.isEmpty()
-                ? encodePostCursor(pageCandidates.getLast())
+        String nextCursor = normalizeCursor(recommendationResponse.nextCursor());
+        return new CursorPagedResponse<>(responses, size, nextCursor, nextCursor != null);
+    }
+
+    private CursorPagedResponse<PostResponse> getPostsForHomeFallbackResponses(
+            int size,
+            String cursor,
+            User user) {
+        PostCursor decodedCursor = decodePostCursor(cursor);
+        int limitPlusOne = size + 1;
+
+        Pageable limit = PageRequest.of(0, limitPlusOne);
+        List<Post> candidatePosts = decodedCursor == null
+                ? postRepository.findLatestHomeFeedPosts(
+                        user.getId(),
+                        ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE,
+                        limit)
+                : postRepository.findLatestHomeFeedPostsAfter(
+                        user.getId(),
+                        ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE,
+                        decodedCursor.createdAt(),
+                        decodedCursor.postId(),
+                        limit);
+
+        boolean hasNext = candidatePosts.size() > size;
+        List<Post> posts = hasNext
+                ? candidatePosts.subList(0, size)
+                : candidatePosts;
+
+        Map<String, String> reactions = getReactionsMap(posts, user);
+        Map<String, List<String>> tagsMap = getTagsMap(posts);
+        Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        List<PostResponse> responses = posts.stream()
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .collect(Collectors.toList());
+
+        String nextCursor = hasNext && !posts.isEmpty()
+                ? FALLBACK_HOME_CURSOR_PREFIX + encodePostCursor(posts.getLast())
                 : null;
         return new CursorPagedResponse<>(responses, size, nextCursor, nextCursor != null);
+    }
+
+    private boolean isFallbackHomeCursor(String cursor) {
+        return cursor != null && cursor.startsWith(FALLBACK_HOME_CURSOR_PREFIX);
+    }
+
+    private boolean isTopicFallbackCursor(String cursor) {
+        return cursor != null && cursor.startsWith(TOPIC_FALLBACK_CURSOR_PREFIX);
+    }
+
+    private boolean isGroupFallbackCursor(String cursor) {
+        return cursor != null && cursor.startsWith(GROUP_FALLBACK_CURSOR_PREFIX);
+    }
+
+    private String fallbackCursorValue(String cursor, String prefix) {
+        String fallbackCursor = cursor.substring(prefix.length());
+        if (fallbackCursor.isBlank()) {
+            throw new BadRequestException("Invalid fallback feed cursor");
+        }
+        return fallbackCursor;
+    }
+
+    private String normalizeCursor(String cursor) {
+        return cursor == null || cursor.isBlank() ? null : cursor;
     }
 
     private void validatePostFeedPageSize(int size) {
@@ -477,9 +670,6 @@ public class PostService {
     private record PostCursor(LocalDateTime createdAt, String postId) {
     }
 
-    private String encodePostCursor(PostCursorProjection post) {
-        return encodePostCursor(post.getCreatedAt(), post.getId());
-    }
 
     private String encodePostCursor(Post post) {
         return encodePostCursor(post.getCreatedAt(), post.getId());
@@ -494,17 +684,6 @@ public class PostService {
                 .encodeToString(rawCursor.getBytes(StandardCharsets.UTF_8));
     }
 
-    private List<Post> findActivePostsInOrder(List<String> postIds) {
-        if (postIds.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        List<Post> posts = new ArrayList<>(
-                postRepository.findByIdInAndStatus(postIds, ContentStatus.ACTIVE));
-        posts.sort(Comparator.comparingInt(post -> postIds.indexOf(post.getId())));
-        return posts;
-    }
-
     public CursorPagedResponse<PostResponse> getPostsByGroupId(
             String groupId,
             int size,
@@ -516,6 +695,65 @@ public class PostService {
             throw new ResourceNotFoundException("Nhóm không tồn tại hoặc đã bị xóa");
         }
         validatePostFeedPageSize(size);
+        if (isGroupFallbackCursor(cursor)) {
+            return getPostsByGroupIdFallback(
+                    groupId,
+                    size,
+                    fallbackCursorValue(cursor, GROUP_FALLBACK_CURSOR_PREFIX),
+                    user);
+        }
+
+        try {
+            return getRecommendedPostsByGroupId(groupId, size, cursor, user);
+        } catch (RecommendationClientException e) {
+            log.warn("Group recommendation service is unavailable; using the MySQL group fallback: {}", e.getMessage());
+            return getPostsByGroupIdFallback(groupId, size, null, user);
+        }
+    }
+
+    private CursorPagedResponse<PostResponse> getRecommendedPostsByGroupId(
+            String groupId,
+            int size,
+            String cursor,
+            User user) {
+        RecommendationFeedResponse recommendationResponse = recommendationClient
+                .getGroupRecommendations(user.getId(), groupId, size, cursor);
+
+        List<String> recommendedPostIds = recommendationResponse.items().stream()
+                .map(RecommendationItem::postId)
+                .filter(postId -> postId != null && !postId.isBlank())
+                .toList();
+
+        Map<String, Post> postsById = recommendedPostIds.isEmpty()
+                ? Map.of()
+                : postRepository.findActivePostsByIdsAndGroupId(
+                        recommendedPostIds,
+                        groupId,
+                        ContentStatus.ACTIVE).stream()
+                        .collect(Collectors.toMap(Post::getId, Function.identity()));
+
+        // the Python service already determined the ranking order.
+        List<Post> posts = recommendedPostIds.stream()
+                .map(postsById::get)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+
+        Map<String, String> reactions = getReactionsMap(posts, user);
+        Map<String, List<String>> tagsMap = getTagsMap(posts);
+        Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        List<PostResponse> responses = posts.stream()
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .collect(Collectors.toList());
+
+        String nextCursor = normalizeCursor(recommendationResponse.nextCursor());
+        return new CursorPagedResponse<>(responses, size, nextCursor, nextCursor != null);
+    }
+
+    private CursorPagedResponse<PostResponse> getPostsByGroupIdFallback(
+            String groupId,
+            int size,
+            String cursor,
+            User user) {
         PostCursor decodedCursor = decodePostCursor(cursor);
         int limitPlusOne = size + 1;
         Pageable limit = PageRequest.of(0, limitPlusOne);
@@ -545,7 +783,7 @@ public class PostService {
                 .collect(Collectors.toList());
 
         String nextCursor = hasNext && !posts.isEmpty()
-                ? encodePostCursor(posts.getLast())
+                ? GROUP_FALLBACK_CURSOR_PREFIX + encodePostCursor(posts.getLast())
                 : null;
         return new CursorPagedResponse<>(responses, size, nextCursor, nextCursor != null);
     }
@@ -559,7 +797,7 @@ public class PostService {
     }
 
     public List<String> getTagsForPost(String postId) {
-        return postNeo4jRepository.getTagNamesByPostId(postId);
+        return postTagRepository.findTagNamesByPostId(postId);
     }
 
     private Map<String, List<String>> getTagsMap(List<Post> posts) {
@@ -659,25 +897,50 @@ public class PostService {
             int size,
             String cursor) throws Exception {
         validatePostFeedPageSize(size);
-        PostCursor decodedCursor = decodePostCursor(cursor);
-        int limitPlusOne = size + 1;
 
-        List<PostCursorProjection> candidatePosts = decodedCursor == null
-                ? postNeo4jRepository.findLatestPostsByTagName(topicName, limitPlusOne)
-                : postNeo4jRepository.findLatestPostsByTagNameAfter(
+        if (isTopicFallbackCursor(cursor)) {
+            return getPostsByTopicNameFallback(
+                    user,
+                    topicName,
+                    size,
+                    fallbackCursorValue(cursor, TOPIC_FALLBACK_CURSOR_PREFIX));
+        }
+
+        try {
+            return getRecommendedPostsByTopicName(user, topicName, size, cursor);
+        } catch (RecommendationClientException e) {
+            log.warn("Topic recommendation service is unavailable; using the MySQL topic fallback: {}", e.getMessage());
+            return getPostsByTopicNameFallback(user, topicName, size, null);
+        }
+    }
+
+    private CursorPagedResponse<PostResponse> getRecommendedPostsByTopicName(
+            User user,
+            String topicName,
+            int size,
+            String cursor) {
+        RecommendationFeedResponse recommendationResponse = recommendationClient
+                .getTopicRecommendations(user.getId(), topicName, size, cursor);
+
+        List<String> recommendedPostIds = recommendationResponse.items().stream()
+                .map(RecommendationItem::postId)
+                .filter(postId -> postId != null && !postId.isBlank())
+                .toList();
+
+        Map<String, Post> postsById = recommendedPostIds.isEmpty()
+                ? Map.of()
+                : postRepository.findVisiblePostsByIdsAndTopicName(
+                        recommendedPostIds,
                         topicName,
-                        decodedCursor.createdAt(),
-                        decodedCursor.postId(),
-                        limitPlusOne);
+                        ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE).stream()
+                        .collect(Collectors.toMap(Post::getId, Function.identity()));
 
-        boolean hasNext = candidatePosts.size() > size;
-        List<PostCursorProjection> pageCandidates = hasNext
-                ? candidatePosts.subList(0, size)
-                : candidatePosts;
-        List<String> pagePostIds = pageCandidates.stream()
-                .map(PostCursorProjection::getId)
-                .collect(Collectors.toList());
-        List<Post> posts = findActivePostsInOrder(pagePostIds);
+        // The Python service already determined the ranking order.
+        List<Post> posts = recommendedPostIds.stream()
+                .map(postsById::get)
+                .filter(java.util.Objects::nonNull)
+                .toList();
 
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
@@ -686,8 +949,47 @@ public class PostService {
                 .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
                 .collect(Collectors.toList());
 
-        String nextCursor = hasNext && !pageCandidates.isEmpty()
-                ? encodePostCursor(pageCandidates.getLast())
+        String nextCursor = normalizeCursor(recommendationResponse.nextCursor());
+        return new CursorPagedResponse<>(responses, size, nextCursor, nextCursor != null);
+    }
+
+    private CursorPagedResponse<PostResponse> getPostsByTopicNameFallback(
+            User user,
+            String topicName,
+            int size,
+            String cursor) {
+        PostCursor decodedCursor = decodePostCursor(cursor);
+        int limitPlusOne = size + 1;
+
+        Pageable limit = PageRequest.of(0, limitPlusOne);
+        List<Post> candidatePosts = decodedCursor == null
+                ? postRepository.findLatestPostsByTopicName(
+                        topicName,
+                        ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE,
+                        limit)
+                : postRepository.findLatestPostsByTopicNameAfter(
+                        topicName,
+                        ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE,
+                        decodedCursor.createdAt(),
+                        decodedCursor.postId(),
+                        limit);
+
+        boolean hasNext = candidatePosts.size() > size;
+        List<Post> posts = hasNext
+                ? candidatePosts.subList(0, size)
+                : candidatePosts;
+
+        Map<String, String> reactions = getReactionsMap(posts, user);
+        Map<String, List<String>> tagsMap = getTagsMap(posts);
+        Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        List<PostResponse> responses = posts.stream()
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .collect(Collectors.toList());
+
+        String nextCursor = hasNext && !posts.isEmpty()
+                ? TOPIC_FALLBACK_CURSOR_PREFIX + encodePostCursor(posts.getLast())
                 : null;
         return new CursorPagedResponse<>(responses, size, nextCursor, nextCursor != null);
     }

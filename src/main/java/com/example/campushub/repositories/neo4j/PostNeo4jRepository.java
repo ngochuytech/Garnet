@@ -65,9 +65,10 @@ public interface PostNeo4jRepository extends Neo4jRepository<PostNode, String> {
                         "MERGE (sharedP)-[:QUOTES]->(originalP) " +
                         "MERGE (u)-[shared:SHARED]->(originalP) " +
                         "ON CREATE SET shared.createdAt = $createdAt " +
-                        "WITH sharedP " +
-                        "MATCH (t:Interest) WHERE t.name IN $tagNames " +
-                        "MERGE (sharedP)-[:HAS_TAG]->(t) " +
+                        "WITH sharedP, $tagNames AS tagNames " +
+                        "OPTIONAL MATCH (t:Interest) WHERE t.name IN tagNames " +
+                        "WITH sharedP, collect(t) AS tags " +
+                        "FOREACH (tag IN tags | MERGE (sharedP)-[:HAS_TAG]->(tag)) " +
                         "RETURN count(DISTINCT sharedP)")
         long createSharedPost(
                         @Param("userId") String userId,

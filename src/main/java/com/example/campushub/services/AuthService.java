@@ -35,6 +35,8 @@ import tools.jackson.databind.ObjectMapper;
 @RequiredArgsConstructor
 public class AuthService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final String DEFAULT_AVATAR_URL =
+            "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png";
 
     private final UserRepository userRepository;
 
@@ -62,6 +64,7 @@ public class AuthService {
             .fullName(registerDTO.getFullname())
             .email(registerDTO.getEmail())
             .password(passwordEncoder.encode(registerDTO.getPassword()))
+            .avatarUrl(DEFAULT_AVATAR_URL)
             .build();
 
         userRepository.saveAndFlush(newUser);

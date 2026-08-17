@@ -35,6 +35,7 @@ public interface UserNeo4jRepository extends Neo4jRepository<UserNode, String> {
        @Query("""
                      MERGE (u:User {id: $userId})
                      SET u.status = coalesce($status, u.status)
+                     WITH u
                      OPTIONAL MATCH (u)-[oldInterest:INTERESTED_IN]->(:Interest)
                      DELETE oldInterest
                      WITH u, CASE WHEN $hobbies IS NULL THEN [] ELSE $hobbies END AS hobbies, $majorName AS majorName

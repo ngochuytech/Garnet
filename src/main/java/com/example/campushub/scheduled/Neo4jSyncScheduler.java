@@ -18,7 +18,7 @@ public class Neo4jSyncScheduler {
     private final Neo4jSyncEventRepository eventRepository;
     private final Neo4jSyncService neo4jSyncService;
 
-    @Scheduled(fixedRate = 5000)
+    @Scheduled(fixedRate = 2000)
     public void syncPendingEvents(){
         List<Neo4jSyncEvent> events = eventRepository.findTop50ByStatusOrderByCreatedAtAsc(Neo4jEventStatus.PENDING);
 

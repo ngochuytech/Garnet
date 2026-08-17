@@ -26,6 +26,10 @@
 
 </div>
 
+## Tài khoản test
+- (Admin): tk: admin@gmail.com  mk: 12345678 (Có thể vào /admin để vào trang quản trị)
+- (User): tk: huy@gmail.com mk: 12345678
+
 ## Tính năng nổi bật
 
 - Đăng ký, đăng nhập bằng email/mật khẩu và Google OAuth 2.0.

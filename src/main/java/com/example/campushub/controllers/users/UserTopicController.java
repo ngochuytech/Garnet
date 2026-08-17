@@ -19,7 +19,7 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/users/topics")
 @RequiredArgsConstructor
 public class UserTopicController {
-    
+
     private final TopicService topicService;
 
     @GetMapping("")
@@ -27,8 +27,14 @@ public class UserTopicController {
         return ResponseEntity.ok().body(ApiResponse.ok(topicService.getTopicCounts(user)));
     }
 
+    @GetMapping("/all")
+    public ResponseEntity<?> getAllTopic(@AuthenticationPrincipal User user) {
+        return ResponseEntity.ok().body(ApiResponse.ok(topicService.getAllTopics(user)));
+    }
+
     @GetMapping("/{topicName}")
-    public ResponseEntity<?> getTopicDetails(@AuthenticationPrincipal User user, @PathVariable String topicName) throws Exception{
+    public ResponseEntity<?> getTopicDetails(@AuthenticationPrincipal User user, @PathVariable String topicName)
+            throws Exception {
         return ResponseEntity.ok().body(ApiResponse.ok(topicService.getTopicDetails(topicName)));
     }
 

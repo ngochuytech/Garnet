@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -62,6 +63,7 @@ import com.example.campushub.repositories.jpa.PostTagRepository;
 import com.example.campushub.repositories.jpa.RecommendationOutboxRepository;
 import com.example.campushub.repositories.jpa.UserRepository;
 import com.example.campushub.repositories.jpa.projections.PostCountProjection;
+import com.example.campushub.repositories.jpa.projections.PostMediaProjection;
 import com.example.campushub.repositories.jpa.projections.PostReactionCountProjection;
 import com.example.campushub.repositories.neo4j.InterestNeo4jRepository;
 import com.example.campushub.repositories.neo4j.PostNeo4jRepository;
@@ -482,9 +484,13 @@ public class PostService {
             int size,
             String cursor,
             User currentUser) throws Exception {
-        userRepository.findById(userId)
+        User targetUser = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Người dùng không tồn tại"));
         validatePostFeedPageSize(size);
+
+        if (targetUser.getStatus() != UserStatus.ACTIVE) {
+            return new CursorPagedResponse<>(List.of(), size, null, false);
+        }
 
         PostCursor decodedCursor = decodePostCursor(cursor);
         int limitPlusOne = size + 1;
@@ -494,14 +500,15 @@ public class PostService {
                 ? postRepository.findLatestPostsByUserId(
                         userId,
                         ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE,
                         limit)
                 : postRepository.findLatestPostsByUserIdAfter(
                         userId,
                         ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE,
                         decodedCursor.createdAt(),
                         decodedCursor.postId(),
                         limit);
-
         boolean hasNext = candidatePosts.size() > size;
         List<Post> posts = hasNext
                 ? candidatePosts.subList(0, size)
@@ -510,8 +517,9 @@ public class PostService {
         Map<String, String> reactions = getReactionsMap(posts, currentUser);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
         Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        PostMediaMaps mediaMaps = getPostMediaMaps(posts);
         List<PostResponse> responses = posts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap, mediaMaps))
                 .collect(Collectors.toList());
 
         String nextCursor = hasNext && !posts.isEmpty()
@@ -566,12 +574,12 @@ public class PostService {
                 .map(postsById::get)
                 .filter(java.util.Objects::nonNull)
                 .toList();
-
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
         Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        PostMediaMaps mediaMaps = getPostMediaMaps(posts);
         List<PostResponse> responses = posts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap, mediaMaps))
                 .collect(Collectors.toList());
 
         String nextCursor = normalizeCursor(recommendationResponse.nextCursor());
@@ -608,8 +616,9 @@ public class PostService {
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
         Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        PostMediaMaps mediaMaps = getPostMediaMaps(posts);
         List<PostResponse> responses = posts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap, mediaMaps))
                 .collect(Collectors.toList());
 
         String nextCursor = hasNext && !posts.isEmpty()
@@ -729,7 +738,8 @@ public class PostService {
                 : postRepository.findActivePostsByIdsAndGroupId(
                         recommendedPostIds,
                         groupId,
-                        ContentStatus.ACTIVE).stream()
+                        ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE).stream()
                         .collect(Collectors.toMap(Post::getId, Function.identity()));
 
         // the Python service already determined the ranking order.
@@ -741,8 +751,9 @@ public class PostService {
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
         Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        PostMediaMaps mediaMaps = getPostMediaMaps(posts);
         List<PostResponse> responses = posts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap, mediaMaps))
                 .collect(Collectors.toList());
 
         String nextCursor = normalizeCursor(recommendationResponse.nextCursor());
@@ -762,10 +773,12 @@ public class PostService {
                 ? postRepository.findLatestPostsByGroupId(
                         groupId,
                         ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE,
                         limit)
                 : postRepository.findLatestPostsByGroupIdAfter(
                         groupId,
                         ContentStatus.ACTIVE,
+                        UserStatus.ACTIVE,
                         decodedCursor.createdAt(),
                         decodedCursor.postId(),
                         limit);
@@ -778,8 +791,9 @@ public class PostService {
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
         Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        PostMediaMaps mediaMaps = getPostMediaMaps(posts);
         List<PostResponse> responses = posts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap, mediaMaps))
                 .collect(Collectors.toList());
 
         String nextCursor = hasNext && !posts.isEmpty()
@@ -891,6 +905,63 @@ public class PostService {
                 statsMap.getOrDefault(post.getId(), PostStats.empty()));
     }
 
+    private PostResponse toPostResponse(Post post, Map<String, String> reactions,
+            Map<String, List<String>> tagsMap, Map<String, PostStats> statsMap,
+            PostMediaMaps mediaMaps) {
+        PostResponse response = toPostResponse(post, reactions, tagsMap, statsMap);
+        response.setImages(mediaMaps.images().getOrDefault(post.getId(), List.of()));
+        response.setVideos(mediaMaps.videos().getOrDefault(post.getId(), List.of()));
+
+        Post sharedPost = post.getSharedPost();
+        if (sharedPost != null && response.getSharedPost() != null) {
+            response.getSharedPost().setImages(sharedPost.getStatus() == ContentStatus.ACTIVE
+                    ? mediaMaps.images().getOrDefault(sharedPost.getId(), List.of())
+                    : List.of());
+            response.getSharedPost().setVideos(
+                    mediaMaps.videos().getOrDefault(sharedPost.getId(), List.of()));
+        }
+        return response;
+    }
+
+    private PostMediaMaps getPostMediaMaps(List<Post> posts) {
+        if (posts.isEmpty()) {
+            return PostMediaMaps.empty();
+        }
+
+        LinkedHashSet<String> postIds = new LinkedHashSet<>();
+        for (Post post : posts) {
+            postIds.add(post.getId());
+            if (post.getSharedPost() != null) {
+                postIds.add(post.getSharedPost().getId());
+            }
+        }
+
+        List<String> ids = List.copyOf(postIds);
+        return new PostMediaMaps(
+                groupMediaByPostId(postRepository.findImageUrlsByPostIds(ids)),
+                groupMediaByPostId(postRepository.findVideoUrlsByPostIds(ids)));
+    }
+
+    private Map<String, List<String>> groupMediaByPostId(List<PostMediaProjection> media) {
+        Map<String, List<String>> mediaByPostId = new HashMap<>();
+        for (PostMediaProjection item : media) {
+            if (item.getPostId() == null || item.getUrl() == null) {
+                continue;
+            }
+            mediaByPostId.computeIfAbsent(item.getPostId(), ignored -> new ArrayList<>())
+                    .add(item.getUrl());
+        }
+        return mediaByPostId;
+    }
+
+    private record PostMediaMaps(
+            Map<String, List<String>> images,
+            Map<String, List<String>> videos) {
+        private static PostMediaMaps empty() {
+            return new PostMediaMaps(Map.of(), Map.of());
+        }
+    }
+
     public CursorPagedResponse<PostResponse> getPostsByTopicName(
             User user,
             String topicName,
@@ -945,8 +1016,9 @@ public class PostService {
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
         Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        PostMediaMaps mediaMaps = getPostMediaMaps(posts);
         List<PostResponse> responses = posts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap, mediaMaps))
                 .collect(Collectors.toList());
 
         String nextCursor = normalizeCursor(recommendationResponse.nextCursor());
@@ -984,8 +1056,9 @@ public class PostService {
         Map<String, String> reactions = getReactionsMap(posts, user);
         Map<String, List<String>> tagsMap = getTagsMap(posts);
         Map<String, PostStats> statsMap = getPostStatsMap(posts);
+        PostMediaMaps mediaMaps = getPostMediaMaps(posts);
         List<PostResponse> responses = posts.stream()
-                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap))
+                .map(post -> toPostResponse(post, reactions, tagsMap, statsMap, mediaMaps))
                 .collect(Collectors.toList());
 
         String nextCursor = hasNext && !posts.isEmpty()

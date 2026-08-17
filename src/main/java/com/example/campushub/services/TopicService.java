@@ -20,6 +20,10 @@ public class TopicService {
         return tagNeo4jRepository.getTopicUserCounts(user.getId());
     }
 
+    public List<TopicResponse> getAllTopics(User user) {
+        return tagNeo4jRepository.findLeafTags();
+    }
+
     public TopicResponse getTopicDetails(String topicName) throws Exception {
         TopicResponse topic = tagNeo4jRepository.getTopicDetails(topicName);
         if (topic == null) {

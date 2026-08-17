@@ -9,7 +9,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record RecommendationFeedResponse(
         @JsonProperty("user_id") String userId,
         @JsonProperty("encoder_version") String encoderVersion,
-        @JsonProperty("index_size") Integer indexSize,
         List<RecommendationItem> items,
         @JsonProperty("next_cursor") String nextCursor) {
 }

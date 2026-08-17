@@ -18,7 +18,7 @@ public class CreateSharePostDTO {
     @NotBlank(message = "Nội dung không được bỏ trống")
     private String content;
 
-    @NotNull(message = "Tags must not be null")
+    @NotNull(message = "Tag không được bỏ trống")
     @Builder.Default
     private Set<String> tags = new HashSet<>();
 }

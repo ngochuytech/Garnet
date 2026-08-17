@@ -18,7 +18,7 @@ public class CreatePostDTO {
     @NotBlank(message = "Nội dung bài viết không được để trống")
     private String content;
 
-    @NotNull(message = "Tags must not be null")
+    @NotNull(message = "Tag không được bỏ trống")
     private Set<String> tags;
 
     private String groupId;

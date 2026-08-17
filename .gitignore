@@ -34,3 +34,5 @@ build/
 
 neo4j.db
 .env
+campushub.sql
+application.yml

@@ -16,6 +16,7 @@ import com.example.campushub.components.JwtTokenProvider;
 import com.example.campushub.dtos.auth.LoginDTO;
 import com.example.campushub.dtos.auth.RegisterDTO;
 import com.example.campushub.dtos.auth.ResetPasswordDTO;
+import com.example.campushub.dtos.record.users.UserDisplayUpdatedPayload;
 import com.example.campushub.dtos.record.users.UserStatusChangedPayload;
 import com.example.campushub.enums.Neo4jEventType;
 import com.example.campushub.enums.UserActionTokenPurpose;
@@ -74,6 +75,15 @@ public class AuthService {
                 Neo4jEventType.USER_STATUS_CHANGED,
                 newUser.getId(),
                 toJson(payload)));
+
+        UserDisplayUpdatedPayload displayPayload = new UserDisplayUpdatedPayload(
+                newUser.getId(),
+                newUser.getFullName(),
+                newUser.getAvatarUrl());
+        neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
+                Neo4jEventType.USER_DISPLAY_UPDATED,
+                newUser.getId(),
+                toJson(displayPayload)));
     }
 
     private String toJson(Object object) {

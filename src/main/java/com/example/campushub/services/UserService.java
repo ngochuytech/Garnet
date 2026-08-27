@@ -148,6 +148,8 @@ public class UserService implements UserDetailsService {
 
         userInterestRepository.saveAll(interests);
 
+        queueRecommendationUserProfileChanged(user.getId());
+
         UserProfileUpdatedPayload payload = new UserProfileUpdatedPayload(user.getId(), major, newHobbies, user.getStatus());
         neo4jSyncEventRepository.save(Neo4jSyncEvent.pending(
                 Neo4jEventType.USER_PROFILE_UPDATED,
